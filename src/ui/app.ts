@@ -60,8 +60,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     moveCancel: $<HTMLButtonElement>('[data-ref=move-cancel]'),
     start: $<HTMLButtonElement>('[data-ref=start]'),
     restart: $<HTMLButtonElement>('[data-ref=restart]'),
-    playerGrid: $('[data-ref=player-grid]'),
-    aiGrid: $('[data-ref=ai-grid]'),
+    grid: $('[data-ref=grid]'),
     playerFleet: $('[data-ref=player-fleet]'),
     aiFleet: $('[data-ref=ai-fleet]'),
     log: $('[data-ref=log]'),
@@ -71,8 +70,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     playAgain: $<HTMLButtonElement>('[data-ref=play-again]'),
     viewBoards: $<HTMLButtonElement>('[data-ref=view-boards]'),
   };
-  buildGrid(els.playerGrid, 'player');
-  buildGrid(els.aiGrid, 'ai');
+  buildGrid(els.grid);
 
   function reset() {
     clearTimeout(aiTimer);
@@ -85,7 +83,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     resultDismissed = false;
     selected = null;
     lastMoved = null;
-    status = '船を配置してください。自分の宙域をクリックすると置けます。';
+    status = '船を配置してください。自陣（左側）のマスをクリックすると置けます。';
     render();
   }
 
@@ -127,7 +125,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     const ship = game.playerBoard.shipAtCell(coord);
     if (!ship || ship === selected) {
       selected = null;
-      status = 'あなたの番です。敵の宙域をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
+      status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
     } else if (ship.hitCount > 0) {
       selected = null;
       status = `${ship.type.name}は被弾しているので動かせません。`;
@@ -199,31 +197,25 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
-  els.playerGrid.addEventListener('click', (e) => {
-    const coord = cellCoord(e.target);
-    if (coord) onPlayerGridClick(coord);
+  els.grid.addEventListener('click', (e) => {
+    const target = cellTarget(e.target);
+    if (target?.owner === 'player') onPlayerGridClick(target.coord);
+    else if (target?.owner === 'ai') onAiGridClick(target.coord);
   });
-  els.playerGrid.addEventListener('mouseover', (e) => {
-    const coord = cellCoord(e.target);
-    if (game.phase === 'placement' && coord && !sameCoordOrNull(coord, hover)) {
-      hover = coord;
-      renderBoards();
-    }
-  });
-  els.playerGrid.addEventListener('mouseleave', () => {
+  const setHover = (coord: Coord | null) => {
+    if (game.phase !== 'placement' || sameCoordOrNull(coord, hover) || coord === hover) return;
+    hover = coord;
+    renderBoards();
+  };
+  const playerCoord = (e: Event) => {
+    const target = cellTarget(e.target);
+    return target?.owner === 'player' ? target.coord : null;
+  };
+  els.grid.addEventListener('mouseover', (e) => setHover(playerCoord(e)));
+  els.grid.addEventListener('focusin', (e) => setHover(playerCoord(e)));
+  els.grid.addEventListener('mouseleave', () => {
     hover = null;
     renderBoards();
-  });
-  els.playerGrid.addEventListener('focusin', (e) => {
-    const coord = cellCoord(e.target);
-    if (game.phase === 'placement' && coord) {
-      hover = coord;
-      renderBoards();
-    }
-  });
-  els.aiGrid.addEventListener('click', (e) => {
-    const coord = cellCoord(e.target);
-    if (coord) onAiGridClick(coord);
   });
 
   const rotate = () => {
@@ -264,7 +256,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     game.start();
     hover = null;
     addLog({ side: 'system', text: '戦闘開始！' });
-    status = '戦闘開始！敵の宙域をクリックして攻撃。自分の船をクリックすると、攻撃の代わりに1マス動かせます。';
+    status = '戦闘開始！敵陣（右側）をクリックして攻撃。自分の船をクリックすると、攻撃の代わりに1マス動かせます。';
     render();
   });
   for (const button of els.moveButtons) {
@@ -272,7 +264,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
   els.moveCancel.addEventListener('click', () => {
     selected = null;
-    status = 'あなたの番です。敵の宙域をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
+    status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
     render();
   });
   els.restart.addEventListener('click', reset);
@@ -326,7 +318,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function renderBoards() {
     const preview = previewCells();
     const myTurn = game.phase === 'playing' && game.turn === 'player';
-    forEachCell(els.playerGrid, (cell, coord) => {
+    forEachCell(els.grid, 'player', (cell, coord) => {
       const board = game.playerBoard;
       const ship = board.shipAtCell(coord);
       const shot = board.shotAt(coord);
@@ -348,11 +340,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       else if (inPreview) setSprite(cell, shipSegment(preview!.type.id, orientation, previewIndex, 'player'), preview!.type.id);
       else setSprite(cell, null);
       cell.disabled = !(game.phase === 'placement' || (myTurn && ship !== null));
-      cell.setAttribute('aria-label', cellAria(coord, shot, ship !== null, ship ? isSunk(ship) : false));
+      cell.setAttribute('aria-label', cellAria('player', coord, shot, ship !== null, ship ? isSunk(ship) : false));
     });
 
     const canAttack = game.phase === 'playing' && game.turn === 'player';
-    forEachCell(els.aiGrid, (cell, coord) => {
+    forEachCell(els.grid, 'ai', (cell, coord) => {
       const board = game.aiBoard;
       const ship = board.shipAtCell(coord);
       const shot = board.shotAt(coord);
@@ -369,7 +361,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       if (reveal && ship) setShipSprite(cell, ship, coord, 'enemy');
       else setSprite(cell, null);
       cell.disabled = !canAttack || shot !== null;
-      cell.setAttribute('aria-label', cellAria(coord, shot, reveal, sunk));
+      cell.setAttribute('aria-label', cellAria('ai', coord, shot, reveal, sunk));
     });
   }
 
@@ -417,20 +409,32 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   };
 }
 
-function buildGrid(container: HTMLElement, owner: 'player' | 'ai') {
+type Owner = 'player' | 'ai';
+const OWNERS: readonly Owner[] = ['player', 'ai'];
+const ZONE_NAMES: Record<Owner, string> = { player: '自陣', ai: '敵陣' };
+
+/** One battlefield: each row is the player's 10 cells, the centre line, then the AI's 10 cells. */
+function buildGrid(container: HTMLElement) {
   const fragment = document.createDocumentFragment();
-  fragment.append(labelCell(''));
-  for (let col = 0; col < BOARD_SIZE; col++) fragment.append(labelCell(COLUMN_LABELS[col]));
+  const divider = document.createElement('div');
+  divider.className = 'divider';
+  divider.setAttribute('aria-hidden', 'true');
+  fragment.append(divider, labelCell(''));
+  for (let i = 0; i < OWNERS.length; i++) {
+    for (let col = 0; col < BOARD_SIZE; col++) fragment.append(labelCell(COLUMN_LABELS[col]));
+  }
   for (let row = 0; row < BOARD_SIZE; row++) {
     fragment.append(labelCell(String(row + 1)));
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      const cell = document.createElement('button');
-      cell.type = 'button';
-      cell.className = 'cell';
-      cell.dataset.row = String(row);
-      cell.dataset.col = String(col);
-      cell.dataset.owner = owner;
-      fragment.append(cell);
+    for (const owner of OWNERS) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'cell';
+        cell.dataset.row = String(row);
+        cell.dataset.col = String(col);
+        cell.dataset.owner = owner;
+        fragment.append(cell);
+      }
     }
   }
   container.replaceChildren(fragment);
@@ -444,20 +448,20 @@ function labelCell(text: string) {
   return el;
 }
 
-function forEachCell(container: HTMLElement, fn: (cell: HTMLButtonElement, coord: Coord) => void) {
-  container.querySelectorAll<HTMLButtonElement>('button.cell').forEach((cell) => {
+function forEachCell(container: HTMLElement, owner: Owner, fn: (cell: HTMLButtonElement, coord: Coord) => void) {
+  container.querySelectorAll<HTMLButtonElement>(`button.cell[data-owner=${owner}]`).forEach((cell) => {
     fn(cell, { row: Number(cell.dataset.row), col: Number(cell.dataset.col) });
   });
 }
 
-function cellCoord(target: EventTarget | null): Coord | null {
+function cellTarget(target: EventTarget | null): { owner: Owner; coord: Coord } | null {
   const cell = (target as HTMLElement | null)?.closest?.<HTMLButtonElement>('button.cell');
   if (!cell) return null;
-  return { row: Number(cell.dataset.row), col: Number(cell.dataset.col) };
+  return { owner: cell.dataset.owner as Owner, coord: { row: Number(cell.dataset.row), col: Number(cell.dataset.col) } };
 }
 
-function sameCoordOrNull(a: Coord, b: Coord | null) {
-  return b !== null && sameCoord(a, b);
+function sameCoordOrNull(a: Coord | null, b: Coord | null) {
+  return a !== null && b !== null && sameCoord(a, b);
 }
 
 function setCellState(cell: HTMLElement, state: Record<string, boolean>) {
@@ -477,8 +481,8 @@ function setShipSprite(cell: HTMLElement, ship: Ship, coord: Coord, facing: Faci
   setSprite(cell, shipSegment(ship.type.id, shipOrientation(ship), index, facing, palette), ship.type.id);
 }
 
-function cellAria(coord: Coord, shot: 'hit' | 'miss' | null, ship: boolean, sunk: boolean) {
-  const parts = [coordLabel(coord)];
+function cellAria(owner: Owner, coord: Coord, shot: 'hit' | 'miss' | null, ship: boolean, sunk: boolean) {
+  const parts = [ZONE_NAMES[owner], coordLabel(coord)];
   if (shot === 'hit') parts.push(sunk ? '撃沈' : '命中');
   else if (shot === 'miss') parts.push('外れ');
   else if (ship) parts.push('船');
@@ -535,17 +539,19 @@ const TEMPLATE = /* html */ `
     <button type="button" class="restart" data-ref="restart">最初からやり直す</button>
   </section>
 
-  <main class="boards">
-    <section class="board-panel" aria-labelledby="player-title">
-      <h2 id="player-title">あなたの宙域</h2>
-      <div class="grid" data-ref="player-grid"></div>
+  <main class="battlefield" aria-label="盤面（左が自陣、右が敵陣）">
+    <div class="zones">
+      <h2 id="player-title">自陣 <small>あなた</small></h2>
+      <span class="vs" aria-hidden="true">VS</span>
+      <h2 id="ai-title" class="enemy">敵陣 <small>AI</small></h2>
+    </div>
+    <div class="grid-scroll">
+      <div class="grid" data-ref="grid"></div>
+    </div>
+    <div class="fleets">
       <ul class="fleet" data-ref="player-fleet" aria-label="あなたの船"></ul>
-    </section>
-    <section class="board-panel enemy" aria-labelledby="ai-title">
-      <h2 id="ai-title">敵（AI）の宙域</h2>
-      <div class="grid" data-ref="ai-grid"></div>
-      <ul class="fleet" data-ref="ai-fleet" aria-label="敵の船"></ul>
-    </section>
+      <ul class="fleet enemy" data-ref="ai-fleet" aria-label="敵の船"></ul>
+    </div>
   </main>
 
   <section class="info">
