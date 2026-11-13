@@ -50,7 +50,7 @@ button {
   border-radius: 6px;
   padding: 8px 14px;
 }
-button:hover:not(:disabled) { background: #2a5f8a; }
+button:not(.cell):hover:not(:disabled) { background: #2a5f8a; }
 button:disabled { cursor: not-allowed; opacity: 0.45; }
 button.primary { background: var(--accent); color: #1a1a1a; border-color: var(--accent); font-weight: 700; }
 button.primary:hover:not(:disabled) { background: #ffd970; }
@@ -112,6 +112,7 @@ button.cell:disabled { opacity: 1; cursor: default; }
 .result[hidden] { display: none; }
 .result-card { background: var(--panel); border: 2px solid var(--accent); border-radius: 12px; padding: 28px 36px; text-align: center; }
 .result-card h2 { margin: 0 0 8px; font-size: 1.8rem; }
+.result-card .buttons { justify-content: center; margin-top: 16px; }
 .result[data-winner='ai'] .result-card { border-color: var(--hit); }
 
 @media (max-width: 700px) {

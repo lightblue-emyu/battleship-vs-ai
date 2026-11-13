@@ -97,4 +97,30 @@ describe('画面（UI）', () => {
     expect(app.game.phase).toBe('placement');
     expect(root.querySelectorAll('button.cell.hit, button.cell.miss')).toHaveLength(0);
   });
+
+  it('敗北後は結果画面を閉じて、公開された敵の残りの船を確認できる', () => {
+    startWithRandomFleet();
+    const enemyCells = new Set(app.game.aiBoard.ships.flatMap((s) => s.cells).map((c) => `${c.row},${c.col}`));
+    outer: for (let row = 0; row < 10; row++) {
+      for (let col = 0; col < 10; col++) {
+        if (app.game.phase !== 'playing') break outer;
+        if (enemyCells.has(`${row},${col}`)) continue;
+        cell('ai', row, col).click();
+        vi.advanceTimersByTime(500);
+      }
+    }
+    expect(app.game.winner).toBe('ai');
+    expect(q('[data-ref=result]').hidden).toBe(false);
+
+    q<HTMLButtonElement>('[data-ref=view-boards]').click();
+    expect(q('[data-ref=result]').hidden).toBe(true);
+    const revealed = root.querySelectorAll('button.cell[data-owner=ai].ship');
+    expect(revealed).toHaveLength(enemyCells.size);
+    expect(q('[data-ref=status]').textContent).toContain('AIの勝利');
+    expect(q<HTMLButtonElement>('[data-ref=restart]').disabled).toBe(false);
+
+    q<HTMLButtonElement>('[data-ref=restart]').click();
+    expect(app.game.phase).toBe('placement');
+    expect(q('[data-ref=result]').hidden).toBe(true);
+  });
 });

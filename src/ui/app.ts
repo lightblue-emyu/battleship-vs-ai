@@ -27,6 +27,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let lastShot: { side: 'player' | 'ai'; coord: Coord } | null = null;
   let log: LogEntry[] = [];
   let status = '';
+  let resultDismissed = false;
   let aiTimer: ReturnType<typeof setTimeout> | undefined;
 
   root.innerHTML = TEMPLATE;
@@ -49,6 +50,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     resultTitle: $('[data-ref=result-title]'),
     resultText: $('[data-ref=result-text]'),
     playAgain: $<HTMLButtonElement>('[data-ref=play-again]'),
+    viewBoards: $<HTMLButtonElement>('[data-ref=view-boards]'),
   };
   buildGrid(els.playerGrid, 'player');
   buildGrid(els.aiGrid, 'ai');
@@ -61,6 +63,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     hover = null;
     lastShot = null;
     log = [];
+    resultDismissed = false;
     status = '船を配置してください。自分の海域をクリックすると置けます。';
     render();
   }
@@ -186,6 +189,10 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   });
   els.restart.addEventListener('click', reset);
   els.playAgain.addEventListener('click', reset);
+  els.viewBoards.addEventListener('click', () => {
+    resultDismissed = true;
+    render();
+  });
 
   function render() {
     els.status.textContent = status;
@@ -269,7 +276,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
   function renderResult() {
     const over = game.phase === 'over';
-    els.result.hidden = !over;
+    els.result.hidden = !over || resultDismissed;
     if (!over) return;
     const playerWon = game.winner === 'player';
     els.result.dataset.winner = game.winner ?? '';
@@ -277,7 +284,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.resultText.textContent = playerWon
       ? '敵の船をすべて沈めました。おめでとうございます！'
       : 'あなたの船はすべて沈められました。もう一度挑戦しましょう！';
-    status = playerWon ? 'ゲーム終了：あなたの勝利です！' : 'ゲーム終了：AIの勝利です。';
+    status = playerWon ? 'ゲーム終了：あなたの勝利です！' : 'ゲーム終了：AIの勝利です。敵の残りの船の位置を表示しています。';
+    if (resultDismissed) status += '「最初からやり直す」で新しいゲームを始められます。';
     els.status.textContent = status;
   }
 
@@ -417,7 +425,10 @@ const TEMPLATE = /* html */ `
     <div class="result-card">
       <h2 id="result-title" data-ref="result-title"></h2>
       <p data-ref="result-text"></p>
-      <button type="button" class="primary" data-ref="play-again">もう一度遊ぶ</button>
+      <div class="buttons">
+        <button type="button" data-ref="view-boards">盤面を確認する</button>
+        <button type="button" class="primary" data-ref="play-again">もう一度遊ぶ</button>
+      </div>
     </div>
   </div>
 `;
