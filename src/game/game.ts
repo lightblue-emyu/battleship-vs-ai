@@ -1,9 +1,21 @@
-import { AiPlayer } from './ai';
+import { AiPlayer, chooseEvasion, type ShipMove } from './ai';
 import { Board, placeFleetRandomly } from './board';
-import { FLEET, type AttackResult, type Coord, type Orientation, type Random, type ShipType } from './types';
+import {
+  FLEET,
+  type AttackResult,
+  type Coord,
+  type Direction,
+  type Orientation,
+  type Random,
+  type Ship,
+  type ShipType,
+} from './types';
 
 export type Phase = 'placement' | 'playing' | 'over';
 export type Side = 'player' | 'ai';
+
+/** What a side did with its turn: fire at a cell, or move one of its ships. */
+export type TurnAction = { kind: 'attack'; result: AttackResult } | ({ kind: 'move' } & ShipMove);
 
 /**
  * The whole match as plain data + rules, with no DOM code.
@@ -16,6 +28,7 @@ export class Game {
   playerBoard = new Board();
   aiBoard = new Board();
   private ai: AiPlayer;
+  private lastPlayerShot: AttackResult | null = null;
 
   constructor(private readonly random: Random = Math.random) {
     this.ai = new AiPlayer(random);
@@ -58,8 +71,29 @@ export class Game {
   playerAttack(coord: Coord): AttackResult {
     this.assertTurn('player');
     const result = this.aiBoard.receiveAttack(coord);
+    this.lastPlayerShot = result;
     this.finishTurn(this.aiBoard, 'player');
     return result;
+  }
+
+  /** Spend the player's turn moving one undamaged ship one cell instead of attacking. */
+  playerMove(ship: Ship, direction: Direction): void {
+    this.assertTurn('player');
+    this.playerBoard.moveShip(ship, direction);
+    this.lastPlayerShot = null;
+    this.turn = 'ai';
+  }
+
+  /** The AI's whole turn: dodge with a threatened ship, or otherwise attack. */
+  aiTakeTurn(): TurnAction {
+    this.assertTurn('ai');
+    const evasion = chooseEvasion(this.aiBoard, this.lastPlayerShot, this.random);
+    if (evasion) {
+      this.aiBoard.moveShip(evasion.ship, evasion.direction);
+      this.turn = 'player';
+      return { kind: 'move', ...evasion };
+    }
+    return { kind: 'attack', result: this.aiAttack() };
   }
 
   aiAttack(): AttackResult {
