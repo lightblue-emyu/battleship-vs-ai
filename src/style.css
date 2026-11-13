@@ -100,14 +100,39 @@ button.primary:hover:not(:disabled) { background: #fcd8a8; }
 button[data-dir] { min-width: 2.6em; font-weight: 700; }
 button.restart { margin-left: auto; }
 
-.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-top: 16px; }
-.board-panel { background: var(--panel); border: 3px solid var(--edge); padding: 12px 14px 14px; }
-.board-panel.enemy { border-color: var(--ng); }
-.board-panel h2 { margin: 0 0 10px; font-size: 1.1rem; color: var(--muted); }
-.board-panel.enemy h2 { color: #fcbcb0; }
+.battlefield {
+  margin-top: 16px;
+  padding: 12px 14px 14px;
+  background: var(--panel);
+  border: 3px solid;
+  border-image: linear-gradient(90deg, var(--edge) 50%, var(--ng) 50%) 1;
+}
+.zones { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin: 0 0 10px 24px; }
+.zones h2 { margin: 0; font-size: 1.1rem; color: var(--muted); text-align: center; }
+.zones h2.enemy { color: #fcbcb0; }
+.zones small { font-size: 0.75rem; opacity: 0.8; }
+.vs { font-family: var(--pixel-font); font-size: 0.8rem; color: var(--accent); text-shadow: 2px 2px 0 #a81000; padding: 0 12px; }
+.grid-scroll { overflow-x: auto; }
 
-.grid { display: grid; grid-template-columns: 22px repeat(10, 1fr); gap: 2px; user-select: none; }
-.label { display: grid; place-items: center; font-family: var(--pixel-font); font-size: 0.55rem; color: var(--muted); }
+/* Columns: row label | 10 player cells | centre line | 10 AI cells. */
+.grid {
+  display: grid;
+  grid-template-columns: 22px repeat(10, minmax(0, 1fr)) 14px repeat(10, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 520px;
+  user-select: none;
+}
+.label { display: grid; place-items: center; font-family: var(--pixel-font); font-size: 0.5rem; color: var(--muted); }
+.divider {
+  grid-column: 12;
+  grid-row: 1 / span 11;
+  justify-self: center;
+  width: 4px;
+  background: repeating-linear-gradient(to bottom, var(--accent) 0 8px, transparent 8px 14px);
+  box-shadow: 0 0 6px var(--accent);
+}
+.cell[data-owner='player'] { background-color: #00082a; }
+.cell[data-owner='ai'] { background-color: #12001e; }
 
 .cell {
   aspect-ratio: 1;
@@ -142,7 +167,7 @@ button.cell:disabled { opacity: 1; cursor: default; }
 @keyframes select-blink { 50% { outline-color: #fcfcfc; } }
 .cell.moved { animation: flash 0.3s steps(2) 2; }
 [data-phase='placement'] [data-owner='player'].cell { cursor: pointer; }
-[data-phase='playing'][data-turn='ai'] .enemy .grid { opacity: 0.7; }
+[data-phase='playing'][data-turn='ai'] .cell[data-owner='ai'] { opacity: 0.7; }
 
 .ship-icon {
   display: inline-block;
@@ -152,11 +177,13 @@ button.cell:disabled { opacity: 1; cursor: default; }
   background-size: 100% 100%;
   image-rendering: pixelated;
 }
+.fleets { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-left: 24px; }
 .fleet { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 12px 0 0; padding: 0; font-size: 0.9rem; }
 .fleet li { display: flex; align-items: center; gap: 6px; }
 .fleet li small { color: var(--ng); font-size: 0.75rem; }
 .fleet li.sunk { color: var(--hit); text-decoration: line-through; }
 .fleet li.pending { opacity: 0.4; }
+.fleet.enemy { color: #fcbcb0; }
 
 .info { display: grid; grid-template-columns: minmax(200px, 1fr) 2fr; gap: 24px; margin-top: 20px; }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; align-content: flex-start; font-size: 0.9rem; }
@@ -180,6 +207,7 @@ button.cell:disabled { opacity: 1; cursor: default; }
   .info { grid-template-columns: 1fr; }
   button.restart { margin-left: 0; }
   .site-header h1 { font-size: 1.1rem; }
+  .fleets { grid-template-columns: 1fr; margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
