@@ -1,0 +1,15 @@
+{
+  "repo_notes": [
+    {
+      "content": "Browser-only Battleship (human vs AI) in TypeScript + Vite. Game rules live in src/game (pure, no DOM), UI in src/ui/app.ts. Write for beginners; the UI and docs are in Japanese."
+    }
+  ],
+  "pages": [
+    { "title": "ゲームの全体像", "purpose": "What the game does, how to play, and how the src/game and src/ui layers fit together", "parent": null },
+    { "title": "ゲームのルール処理（Board と Game）", "purpose": "Explain src/game/board.ts and src/game/game.ts: ship placement, attack results, sinking, turns and winner", "parent": "ゲームの全体像" },
+    { "title": "AIの考え方", "purpose": "Explain the hunt-and-target strategy in src/game/ai.ts and why it never repeats a cell", "parent": "ゲームの全体像" },
+    { "title": "画面（UI）", "purpose": "Explain src/ui/app.ts: rendering, click handling, AI turn timer and restart", "parent": "ゲームの全体像" },
+    { "title": "テストと公開", "purpose": "Explain the Vitest tests in tests/, the CI workflow and the GitHub Pages deploy workflow", "parent": null },
+    { "title": "バグと修正の記録", "purpose": "Summarize docs/bug-report.md", "parent": null }
+  ]
+}
