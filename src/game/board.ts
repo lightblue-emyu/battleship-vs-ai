@@ -1,6 +1,9 @@
 import {
   BOARD_SIZE,
+  DIRECTION_DELTA,
+  DIRECTIONS,
   FLEET,
+  type Direction,
   type AttackResult,
   type Coord,
   type Orientation,
@@ -24,6 +27,15 @@ export function shipCells(start: Coord, length: number, orientation: Orientation
 
 export function sameCoord(a: Coord, b: Coord): boolean {
   return a.row === b.row && a.col === b.col;
+}
+
+export function shipOrientation(ship: Ship): Orientation {
+  return ship.cells.length > 1 && ship.cells[0].row === ship.cells[1].row ? 'horizontal' : 'vertical';
+}
+
+function step(coord: Coord, direction: Direction): Coord {
+  const d = DIRECTION_DELTA[direction];
+  return { row: coord.row + d.row, col: coord.col + d.col };
 }
 
 /**
@@ -81,6 +93,32 @@ export class Board {
     this.shots[coord.row][coord.col] = 'hit';
     ship.hitCount += 1;
     return { coord, outcome: isSunk(ship) ? 'sunk' : 'hit', ship };
+  }
+
+  /**
+   * A ship may move one cell if it has not been hit yet and every new cell is
+   * inside the board, free of other ships and not shot at before (so a cell
+   * that was a miss stays a miss, and no cell ever needs to be attacked twice).
+   */
+  canMoveShip(ship: Ship, direction: Direction): boolean {
+    if (ship.hitCount > 0 || !this.ships.includes(ship)) return false;
+    return ship.cells.every((c) => {
+      const next = step(c, direction);
+      if (!isInBounds(next) || this.hasBeenShot(next)) return false;
+      const occupant = this.shipAt[next.row][next.col];
+      return occupant === null || occupant === ship;
+    });
+  }
+
+  moveShip(ship: Ship, direction: Direction): void {
+    if (!this.canMoveShip(ship, direction)) throw new Error(`${ship.type.name}はその方向に動かせません`);
+    for (const c of ship.cells) this.shipAt[c.row][c.col] = null;
+    ship.cells = ship.cells.map((c) => step(c, direction));
+    for (const c of ship.cells) this.shipAt[c.row][c.col] = ship;
+  }
+
+  legalMoves(ship: Ship): Direction[] {
+    return DIRECTIONS.filter((d) => this.canMoveShip(ship, d));
   }
 
   allShipsSunk(): boolean {

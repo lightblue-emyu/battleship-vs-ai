@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiPlayer } from '../src/game/ai';
+import { AiPlayer, chooseEvasion } from '../src/game/ai';
 import { Board, placeFleetRandomly } from '../src/game/board';
 import { BOARD_SIZE, FLEET } from '../src/game/types';
 import { seededRandom } from './helpers';
@@ -69,5 +69,32 @@ describe('AiPlayer', () => {
       }
       expect(shots).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe('chooseEvasion（AIの回避）', () => {
+  const always = () => 0;
+
+  it('自分の船のすぐ隣に外れ弾が来たら、その船を弾から離れる方向へ動かす', () => {
+    const board = new Board();
+    const ship = board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
+    const shot = board.receiveAttack({ row: 4, col: 5 });
+    const move = chooseEvasion(board, shot, always);
+    expect(move).toEqual({ ship, direction: 'down' });
+  });
+
+  it('命中や、離れた場所への外れでは動かない', () => {
+    const board = new Board();
+    board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
+    expect(chooseEvasion(board, board.receiveAttack({ row: 0, col: 0 }), always)).toBeNull();
+    expect(chooseEvasion(board, board.receiveAttack({ row: 5, col: 5 }), always)).toBeNull();
+    expect(chooseEvasion(board, null, always)).toBeNull();
+  });
+
+  it('確率に外れたら回避しない', () => {
+    const board = new Board();
+    board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
+    const shot = board.receiveAttack({ row: 4, col: 5 });
+    expect(chooseEvasion(board, shot, () => 0.99)).toBeNull();
   });
 });

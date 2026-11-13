@@ -1,5 +1,46 @@
-import { isInBounds, sameCoord } from './board';
-import { BOARD_SIZE, type AttackResult, type Coord, type Random } from './types';
+import { type Board, isInBounds, sameCoord } from './board';
+import { BOARD_SIZE, DIRECTION_DELTA, type AttackResult, type Coord, type Direction, type Random, type Ship } from './types';
+
+/** How often the AI dodges instead of attacking when a shot lands next to one of its ships. */
+export const EVADE_CHANCE = 0.5;
+
+export interface ShipMove {
+  ship: Ship;
+  direction: Direction;
+}
+
+/**
+ * Decides whether the AI should spend its turn moving a ship out of danger.
+ * It only reacts to the player's last shot: if it was a miss right next to an
+ * undamaged AI ship, the AI sometimes moves that ship one cell away.
+ */
+export function chooseEvasion(
+  board: Board,
+  lastIncoming: AttackResult | null,
+  random: Random,
+  chance = EVADE_CHANCE,
+): ShipMove | null {
+  if (!lastIncoming || lastIncoming.outcome !== 'miss') return null;
+  const shot = lastIncoming.coord;
+  const options = board.ships
+    .filter((s) => s.hitCount === 0 && distanceTo(s.cells, shot) === 1)
+    .flatMap((ship) => board.legalMoves(ship).map((direction) => ({ ship, direction })));
+  const away = options.filter(
+    ({ ship, direction }) => distanceTo(moved(ship.cells, direction), shot) > distanceTo(ship.cells, shot),
+  );
+  const pool = away.length > 0 ? away : options;
+  if (pool.length === 0 || random() >= chance) return null;
+  return pool[Math.floor(random() * pool.length)];
+}
+
+function distanceTo(cells: Coord[], target: Coord): number {
+  return Math.min(...cells.map((c) => Math.abs(c.row - target.row) + Math.abs(c.col - target.col)));
+}
+
+function moved(cells: Coord[], direction: Direction): Coord[] {
+  const d = DIRECTION_DELTA[direction];
+  return cells.map((c) => ({ row: c.row + d.row, col: c.col + d.col }));
+}
 
 const DIRECTIONS: readonly Coord[] = [
   { row: -1, col: 0 },

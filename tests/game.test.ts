@@ -86,3 +86,41 @@ describe('Game', () => {
     expect(results).toEqual(['hit', 'sunk']);
   });
 });
+
+describe('Game：船の移動', () => {
+  it('プレイヤーが船を動かすと手番を使い、AIの番になる', () => {
+    const game = startedGame();
+    const ship = game.playerBoard.ships.find((s) => game.playerBoard.legalMoves(s).length > 0)!;
+    const [direction] = game.playerBoard.legalMoves(ship);
+    game.playerMove(ship, direction);
+    expect(game.turn).toBe('ai');
+    expect(() => game.playerMove(ship, direction)).toThrow('AIの番');
+    expect(game.aiTakeTurn().kind).toBe('attack');
+    expect(game.turn).toBe('player');
+  });
+
+  it('自分の船の隣に外れ弾を受けたAIは、攻撃の代わりに船を動かすことがある', () => {
+    const game = new Game(() => 0);
+    game.placeRemainingRandomly();
+    game.start();
+    const near = findMissNextToShip(game);
+    game.playerAttack(near);
+    const action = game.aiTakeTurn();
+    expect(action.kind).toBe('move');
+    expect(game.turn).toBe('player');
+    expect(game.playerBoard.ships.every((s) => s.hitCount === 0)).toBe(true);
+  });
+});
+
+function findMissNextToShip(game: Game) {
+  for (const ship of game.aiBoard.ships) {
+    for (const c of ship.cells) {
+      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const coord = { row: c.row + dr, col: c.col + dc };
+        if (coord.row < 0 || coord.row >= BOARD_SIZE || coord.col < 0 || coord.col >= BOARD_SIZE) continue;
+        if (game.aiBoard.shipAtCell(coord) === null && game.aiBoard.legalMoves(ship).length > 0) return coord;
+      }
+    }
+  }
+  throw new Error('no suitable cell');
+}
