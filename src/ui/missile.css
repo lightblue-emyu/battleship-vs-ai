@@ -1,0 +1,30 @@
+/* Missile flying from the shooter's side of the battlefield to the attacked cell. */
+.grid { position: relative; }
+.missile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image: var(--sprite);
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 3px #f8b800);
+  animation: missile-flame 0.1s steps(2) infinite;
+}
+@keyframes missile-flame { 50% { filter: drop-shadow(0 0 5px #fca044); } }
+
+/* Until the missile lands, hide the result and show a blinking lock-on frame instead. */
+.cell.incoming { --fx: none; outline: 2px solid var(--accent); z-index: 2; animation: lock-on 0.15s steps(2) infinite; }
+.cell.incoming.hit[data-owner='ai'] { background-color: #12001e; }
+.cell.incoming.hit[data-owner='player'] { background-color: #061646; }
+@keyframes lock-on { 50% { outline-color: #f83800; } }
+
+/* Show the win/lose dialog only after the final missile has landed. */
+.result:not([hidden]) { animation: result-in 0.2s 0.45s both; }
+@keyframes result-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .missile { display: none; }
+  .result:not([hidden]) { animation: none; }
+}

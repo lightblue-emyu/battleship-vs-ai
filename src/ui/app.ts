@@ -10,12 +10,15 @@ import {
   type Random,
   type Ship,
 } from '../game/types';
+import { launchMissile, MISSILE_FLIGHT_MS, prefersReducedMotion, type Shooter } from './missile';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
 
 export interface AppOptions {
   random?: Random;
   /** Pause before the AI fires, so the player can follow what happened. */
   aiDelayMs?: number;
+  /** How long an attack missile flies before it lands (0 = no missile). */
+  missileMs?: number;
 }
 
 type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
@@ -33,6 +36,7 @@ export function coordLabel({ row, col }: Coord): string {
 export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const random = options.random ?? Math.random;
   const aiDelayMs = options.aiDelayMs ?? 700;
+  const missileMs = options.missileMs ?? MISSILE_FLIGHT_MS;
 
   let game = new Game(random);
   let orientation: Orientation = 'horizontal';
@@ -44,6 +48,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let selected: Ship | null = null;
   let lastMoved: Ship | null = null;
   let aiTimer: ReturnType<typeof setTimeout> | undefined;
+  const missiles = new Set<() => void>();
 
   root.innerHTML = TEMPLATE;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -75,6 +80,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function reset() {
     clearTimeout(aiTimer);
     aiTimer = undefined;
+    cancelMissiles();
     game = new Game(random);
     orientation = 'horizontal';
     hover = null;
@@ -85,6 +91,22 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     lastMoved = null;
     status = '船を配置してください。自陣（左側）のマスをクリックすると置けます。';
     render();
+  }
+
+  function fireMissile(shooter: Shooter, coord: Coord) {
+    if (missileMs <= 0 || prefersReducedMotion()) return;
+    const owner: Owner = shooter === 'player' ? 'ai' : 'player';
+    const target = els.grid.querySelector<HTMLElement>(
+      `button.cell[data-owner=${owner}][data-row="${coord.row}"][data-col="${coord.col}"]`,
+    );
+    if (!target) return;
+    const cancel = launchMissile(els.grid, target, shooter, missileMs, () => missiles.delete(cancel));
+    missiles.add(cancel);
+  }
+
+  function cancelMissiles() {
+    for (const cancel of missiles) cancel();
+    missiles.clear();
   }
 
   function addLog(entry: LogEntry) {
@@ -182,6 +204,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       aiTimer = setTimeout(runAiTurn, aiDelayMs);
     }
     render();
+    fireMissile('player', coord);
   }
 
   function runAiTurn() {
@@ -201,6 +224,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
     }
     render();
+    if (action.kind === 'attack') fireMissile('ai', action.result.coord);
   }
 
   els.grid.addEventListener('click', (e) => {
@@ -402,6 +426,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     },
     destroy() {
       clearTimeout(aiTimer);
+      cancelMissiles();
       document.removeEventListener('keydown', onKeydown);
       root.innerHTML = '';
     },
