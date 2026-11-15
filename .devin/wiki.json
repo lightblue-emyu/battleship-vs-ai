@@ -1,15 +1,18 @@
 {
   "repo_notes": [
     {
-      "content": "Browser-only Battleship (human vs AI) in TypeScript + Vite. Game rules live in src/game (pure, no DOM), UI in src/ui/app.ts. Write for beginners; the UI and docs are in Japanese."
+      "content": "Browser-only Battleship (human vs AI) in TypeScript + Vite, deployed to GitHub Pages. Game rules live in src/game (pure, no DOM), UI in src/ui/app.ts, pixel-art sprites in src/ui/sprites.ts. The UI shows ONE grid split by a centre line: own zone (data-owner=player) on the left, enemy zone (data-owner=ai) on the right; internally there are still two Board objects (playerBoard, aiBoard). On each turn a side either attacks or moves one undamaged ship by one cell. Write for beginners; the UI and docs are in Japanese, so write the wiki in Japanese."
     }
   ],
   "pages": [
-    { "title": "ゲームの全体像", "purpose": "What the game does, how to play, and how the src/game and src/ui layers fit together", "parent": null },
-    { "title": "ゲームのルール処理（Board と Game）", "purpose": "Explain src/game/board.ts and src/game/game.ts: ship placement, attack results, sinking, turns and winner", "parent": "ゲームの全体像" },
-    { "title": "AIの考え方", "purpose": "Explain the hunt-and-target strategy in src/game/ai.ts and why it never repeats a cell", "parent": "ゲームの全体像" },
-    { "title": "画面（UI）", "purpose": "Explain src/ui/app.ts: rendering, click handling, AI turn timer and restart", "parent": "ゲームの全体像" },
-    { "title": "テストと公開", "purpose": "Explain the Vitest tests in tests/, the CI workflow and the GitHub Pages deploy workflow", "parent": null },
-    { "title": "バグと修正の記録", "purpose": "Summarize docs/bug-report.md", "parent": null }
+    { "title": "ゲームの全体像", "purpose": "What the game does, how to play (placement, attack or move, win/lose, restart), and how the src/game and src/ui layers fit together", "parent": null },
+    { "title": "ゲームのルール処理（Board と Game）", "purpose": "Explain src/game/board.ts and src/game/game.ts: ship placement, attack results, sinking, phases, turns and winner", "parent": "ゲームの全体像" },
+    { "title": "船の移動ルール", "purpose": "Explain Board.legalMoves / moveShip and Game turn actions: one cell up/down/left/right instead of attacking; hit ships cannot move; no moving off the board, onto other ships or onto attacked cells", "parent": "ゲームの全体像" },
+    { "title": "AIの考え方", "purpose": "Explain the hunt-and-target strategy in src/game/ai.ts, why it never repeats a cell, and the evasion move (chooseEvasion, EVADE_CHANCE) after a nearby miss", "parent": "ゲームの全体像" },
+    { "title": "画面（UI）と1枚の盤面", "purpose": "Explain src/ui/app.ts: the single grid built by buildGrid (own zone left, divider, enemy zone right), data-owner, click handling, ship selection and deselect, arrow keys, AI turn timer, result dialog and restart", "parent": "ゲームの全体像" },
+    { "title": "ドット絵と見た目", "purpose": "Explain src/ui/sprites.ts (8x8 letter grids turned into SVG data URLs) and src/style.css (retro space theme, centre divider, horizontal scroll on narrow screens)", "parent": "画面（UI）と1枚の盤面" },
+    { "title": "テストと公開", "purpose": "Explain the Vitest tests in tests/ (logic tests and jsdom UI tests with fake timers), npm run check, the CI workflow and the GitHub Pages deploy workflow", "parent": null },
+    { "title": "バグと修正の記録", "purpose": "Summarize every bug in docs/bug-report.md: symptom, cause, fix and regression test", "parent": null },
+    { "title": "開発の進め方", "purpose": "Explain AGENTS.md rules, the PR workflow, and that .devin/wiki.json should be updated and the wiki regenerated after a feature is merged", "parent": null }
   ]
 }

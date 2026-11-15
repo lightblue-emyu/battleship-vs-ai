@@ -27,3 +27,5 @@ Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `mai
 - Every bug fix gets a regression test and a short entry in `docs/bug-report.md`.
 - UI text is Japanese; code, identifiers and commit messages are English.
 - Do not add runtime dependencies without a clear reason.
+- When a feature changes how the game or code is organised, update the page list in `.devin/wiki.json`
+  in the same PR, then regenerate the Devin wiki after merging.
