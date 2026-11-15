@@ -190,6 +190,18 @@ describe('画面（UI）', () => {
     }
   });
 
+  it('Escで選択を解除すると、上部の案内も通常の手番案内に戻る', () => {
+    startWithRandomFleet();
+    const ship = app.game.playerBoard.ships.find((s) => app.game.playerBoard.legalMoves(s).length > 0)!;
+    cell('player', ship.cells[0].row, ship.cells[0].col).click();
+    expect(q('[data-ref=status]').textContent).toContain('選択中');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(root.querySelectorAll('.cell.selected')).toHaveLength(0);
+    expect(q('[data-ref=status]').textContent).not.toContain('選択中');
+    expect(q('[data-ref=status]').textContent).toContain('あなたの番です');
+  });
+
   it('船のマスにはドット絵が表示される', () => {
     startWithRandomFleet();
     const ship = app.game.playerBoard.ships[0];

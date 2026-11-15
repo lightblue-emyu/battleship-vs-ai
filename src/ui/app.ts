@@ -120,6 +120,12 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
+  function deselect() {
+    selected = null;
+    status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
+    render();
+  }
+
   function selectShipAt(coord: Coord) {
     if (game.turn !== 'player') return;
     const ship = game.playerBoard.shipAtCell(coord);
@@ -231,10 +237,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       e.preventDefault();
       moveSelected(direction);
     }
-    if (e.key === 'Escape' && selected) {
-      selected = null;
-      render();
-    }
+    if (e.key === 'Escape' && selected) deselect();
   };
   document.addEventListener('keydown', onKeydown);
 
@@ -262,11 +265,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   for (const button of els.moveButtons) {
     button.addEventListener('click', () => moveSelected(button.dataset.dir as Direction));
   }
-  els.moveCancel.addEventListener('click', () => {
-    selected = null;
-    status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
-    render();
-  });
+  els.moveCancel.addEventListener('click', deselect);
   els.restart.addEventListener('click', reset);
   els.playAgain.addEventListener('click', reset);
   els.viewBoards.addEventListener('click', () => {
