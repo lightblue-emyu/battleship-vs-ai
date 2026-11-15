@@ -81,6 +81,10 @@ body::after {
 .placement, .move-panel { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .placement[hidden], .move-panel[hidden] { display: none; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.difficulty { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.difficulty span { color: var(--muted); }
+.difficulty button { padding: 5px 10px; }
+.difficulty button[aria-pressed='true'] { background: var(--edge); color: #000; border-color: var(--edge); }
 
 button {
   font: inherit;
