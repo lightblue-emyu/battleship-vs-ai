@@ -215,6 +215,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
+  root.addEventListener('click', () => sound.unlock());
   els.grid.addEventListener('click', (e) => {
     const target = cellTarget(e.target);
     if (target?.owner === 'player') onPlayerGridClick(target.coord);
@@ -243,6 +244,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   };
   els.rotate.addEventListener('click', rotate);
   const onKeydown = (e: KeyboardEvent) => {
+    sound.unlock();
     if (e.key === 'r' || e.key === 'R') rotate();
     const direction = ARROW_KEYS[e.key];
     if (direction && selected) {

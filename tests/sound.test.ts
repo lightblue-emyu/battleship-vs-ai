@@ -79,4 +79,18 @@ describe('効果音', () => {
     createSoundPlayer(() => ctx as unknown as AudioContext, null).play('hit');
     expect(ctx.resume).toHaveBeenCalled();
   });
+
+  it('unlock() でクリック中に AudioContext を作り、一時停止していれば再開する（ミュート中は何もしない）', () => {
+    const ctx = { ...fakeAudioContext(), state: 'suspended' };
+    const factory = vi.fn(() => ctx as unknown as AudioContext);
+    const player = createSoundPlayer(factory, memoryStorage());
+    player.muted = true;
+    player.unlock();
+    expect(factory).not.toHaveBeenCalled();
+    player.muted = false;
+    player.unlock();
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(ctx.resume).toHaveBeenCalled();
+    expect(ctx.createOscillator).not.toHaveBeenCalled();
+  });
 });

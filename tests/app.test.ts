@@ -18,7 +18,7 @@ beforeEach(() => {
   root = document.createElement('div');
   document.body.append(root);
   sounds = [];
-  sound = { muted: false, play: (effect) => void (sound.muted || sounds.push(effect)) };
+  sound = { muted: false, unlock: vi.fn(), play: (effect) => void (sound.muted || sounds.push(effect)) };
   app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, sound });
 });
 
@@ -260,5 +260,12 @@ describe('画面（UI）', () => {
     const target = app.game.aiBoard.ships[0].cells[0];
     cell('ai', target.row, target.col).click();
     expect(sounds).toEqual([]);
+  });
+
+  it('クリックやキー操作のたびに音を準備する（AIのタイマーで鳴る音がブラウザに止められないように）', () => {
+    q<HTMLButtonElement>('[data-ref=random]').click();
+    expect(sound.unlock).toHaveBeenCalledTimes(1);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }));
+    expect(sound.unlock).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,6 +4,8 @@ export type SoundEffect = 'hit' | 'sunk';
 
 export interface SoundPlayer {
   play(effect: SoundEffect): void;
+  /** Call from a click/key handler so later sounds (e.g. on the AI's timer) are allowed to play. */
+  unlock(): void;
   muted: boolean;
 }
 
@@ -33,8 +35,8 @@ function browserStorage(): Storage | null {
 
 /**
  * Retro 8-bit sound effects synthesised with the Web Audio API (no audio files).
- * The AudioContext is created on the first sound, which always follows a click,
- * so browsers' autoplay rules allow it. Without Web Audio it silently does nothing.
+ * Browsers only let audio start during a user gesture, so `unlock()` (called on every
+ * click / key press) creates or resumes the AudioContext. Without Web Audio it does nothing.
  */
 export function createSoundPlayer(
   createContext: ContextFactory = browserContext,
@@ -66,6 +68,9 @@ export function createSoundPlayer(
       } catch {
         // Private mode etc.: the setting just won't be remembered.
       }
+    },
+    unlock() {
+      if (!muted) context();
     },
     play(effect) {
       if (muted) return;
