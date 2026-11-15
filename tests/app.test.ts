@@ -35,6 +35,27 @@ function startWithRandomFleet() {
 }
 
 describe('画面（UI）', () => {
+  it('盤面は1つで、各行が「自陣10マス → 中央線 → 敵陣10マス」の順に並ぶ', () => {
+    const grids = root.querySelectorAll('.grid');
+    expect(grids).toHaveLength(1);
+    expect(grids[0].querySelectorAll('.divider')).toHaveLength(1);
+    const owners = [...grids[0].querySelectorAll<HTMLButtonElement>('button.cell')].map((c) => c.dataset.owner);
+    expect(owners).toHaveLength(200);
+    for (let row = 0; row < 10; row++) {
+      expect(owners.slice(row * 20, row * 20 + 20)).toEqual([...Array(10).fill('player'), ...Array(10).fill('ai')]);
+    }
+    expect(cell('player', 0, 0).getAttribute('aria-label')).toContain('自陣');
+    expect(cell('ai', 0, 0).getAttribute('aria-label')).toContain('敵陣');
+  });
+
+  it('敵陣の上にマウスを乗せても配置プレビューは出ない', () => {
+    cell('ai', 3, 3).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(root.querySelectorAll('.preview-ok, .preview-ng')).toHaveLength(0);
+    cell('player', 3, 3).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(root.querySelectorAll('[data-owner=player].preview-ok')).toHaveLength(5);
+    expect(root.querySelectorAll('[data-owner=ai].preview-ok')).toHaveLength(0);
+  });
+
   it('船をクリックで配置でき、全部置くまで開始ボタンは押せない', () => {
     expect(q<HTMLButtonElement>('[data-ref=start]').disabled).toBe(true);
     cell('player', 0, 0).click();
@@ -167,6 +188,18 @@ describe('画面（UI）', () => {
       expect(q('[data-ref=status]').textContent).toContain('動かせません');
       expect(q('[data-ref=move-info]').textContent).not.toContain(damaged.type.name);
     }
+  });
+
+  it('Escで選択を解除すると、上部の案内も通常の手番案内に戻る', () => {
+    startWithRandomFleet();
+    const ship = app.game.playerBoard.ships.find((s) => app.game.playerBoard.legalMoves(s).length > 0)!;
+    cell('player', ship.cells[0].row, ship.cells[0].col).click();
+    expect(q('[data-ref=status]').textContent).toContain('選択中');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(root.querySelectorAll('.cell.selected')).toHaveLength(0);
+    expect(q('[data-ref=status]').textContent).not.toContain('選択中');
+    expect(q('[data-ref=status]').textContent).toContain('あなたの番です');
   });
 
   it('船のマスにはドット絵が表示される', () => {
