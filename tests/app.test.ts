@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/ui/app';
+import type { SoundEffect, SoundPlayer } from '../src/ui/sound';
 import { seededRandom } from './helpers';
 
 let root: HTMLElement;
 let app: ReturnType<typeof mountApp>;
+let sounds: SoundEffect[];
+let sound: SoundPlayer;
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
 const cell = (owner: 'player' | 'ai', row: number, col: number) =>
@@ -14,7 +17,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   root = document.createElement('div');
   document.body.append(root);
-  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500 });
+  sounds = [];
+  sound = { muted: false, play: (effect) => void (sound.muted || sounds.push(effect)) };
+  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, sound });
 });
 
 afterEach(() => {
@@ -209,5 +214,51 @@ describe('画面（UI）', () => {
     expect(el.dataset.ship).toBe(ship.type.id);
     expect(el.style.getPropertyValue('--sprite')).toContain('data:image/svg+xml');
     expect(cell('ai', 0, 0).style.getPropertyValue('--sprite')).toBe('');
+  });
+
+  it('自分の攻撃が命中・撃沈すると効果音が鳴り、外れは鳴らない', () => {
+    startWithRandomFleet();
+    const empty = cellsWhere((c) => app.game.aiBoard.shipAtCell(c) === null)[0];
+    cell('ai', empty.row, empty.col).click();
+    expect(sounds).toEqual([]);
+    vi.advanceTimersByTime(500);
+
+    const ship = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
+    const [first, second] = ship.cells.map((c) => ({ ...c }));
+    sounds = [];
+    cell('ai', first.row, first.col).click();
+    expect(sounds[0]).toBe('hit');
+    vi.advanceTimersByTime(500);
+    sounds = [];
+    cell('ai', second.row, second.col).click();
+    expect(sounds[0]).toBe('sunk');
+  });
+
+  it('AIの攻撃があなたの船に命中したときも効果音が鳴る', () => {
+    startWithRandomFleet();
+    let aiHits = 0;
+    while (app.game.phase === 'playing' && aiHits === 0) {
+      const empty = cellsWhere((c) => !app.game.aiBoard.hasBeenShot(c) && app.game.aiBoard.shipAtCell(c) === null)[0];
+      cell('ai', empty.row, empty.col).click();
+      sounds = [];
+      vi.advanceTimersByTime(500);
+      aiHits = root.querySelectorAll('[data-owner=player].hit').length;
+    }
+    expect(sounds.length).toBe(1);
+    expect(['hit', 'sunk']).toContain(sounds[0]);
+  });
+
+  it('効果音ボタンでON/OFFを切り替えられ、OFFの間は鳴らない', () => {
+    const toggle = q<HTMLButtonElement>('[data-ref=sound-toggle]');
+    expect(toggle.textContent).toBe('効果音：ON');
+    toggle.click();
+    expect(sound.muted).toBe(true);
+    expect(toggle.textContent).toBe('効果音：OFF');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    startWithRandomFleet();
+    const target = app.game.aiBoard.ships[0].cells[0];
+    cell('ai', target.row, target.col).click();
+    expect(sounds).toEqual([]);
   });
 });
