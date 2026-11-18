@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/ui/app';
-import { flightPath } from '../src/ui/missile';
+import { flightPath, MISSILE_FLIGHT_MS } from '../src/ui/missile';
+import { createRecordStore } from '../src/ui/record';
 import type { SoundEffect } from '../src/ui/sound';
-import { SPRITE_ART } from '../src/ui/sprites';
 import { seededRandom } from './helpers';
 
 describe('ミサイルの弾道（flightPath）', () => {
@@ -26,9 +26,8 @@ describe('ミサイルの弾道（flightPath）', () => {
     expect(path.at(-1)!.x).toBeCloseTo(50);
   });
 
-  it('ミサイルのドット絵は全行が同じ幅', () => {
-    const widths = new Set(SPRITE_ART.missile.map((row) => row.length));
-    expect(widths.size).toBe(1);
+  it('標準の飛行時間は約0.8秒（ゆっくり見える速さ）', () => {
+    expect(MISSILE_FLIGHT_MS).toBe(800);
   });
 });
 
@@ -46,7 +45,7 @@ describe('ミサイルの演出（画面）', () => {
     document.body.append(root);
     sounds = [];
     const sound = { muted: false, unlock: vi.fn(), play: (effect: SoundEffect) => void sounds.push(effect) };
-    app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 400, sound });
+    app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 400, sound, record: createRecordStore(null) });
     q<HTMLButtonElement>('[data-ref=random]').click();
     q<HTMLButtonElement>('[data-ref=start]').click();
   }

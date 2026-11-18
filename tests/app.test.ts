@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/ui/app';
+import { createRecordStore, type RecordStore } from '../src/ui/record';
 import type { SoundEffect, SoundPlayer } from '../src/ui/sound';
 import { seededRandom } from './helpers';
 
@@ -8,6 +9,7 @@ let root: HTMLElement;
 let app: ReturnType<typeof mountApp>;
 let sounds: SoundEffect[];
 let sound: SoundPlayer;
+let record: RecordStore;
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
 const cell = (owner: 'player' | 'ai', row: number, col: number) =>
@@ -19,7 +21,8 @@ beforeEach(() => {
   document.body.append(root);
   sounds = [];
   sound = { muted: false, unlock: vi.fn(), play: (effect) => void (sound.muted || sounds.push(effect)) };
-  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 0, sound });
+  record = createRecordStore(null);
+  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 0, sound, record });
 });
 
 afterEach(() => {
@@ -112,7 +115,12 @@ describe('画面（UI）', () => {
       vi.advanceTimersByTime(500);
     }
     expect(q('[data-ref=result]').hidden).toBe(false);
-    expect(q('[data-ref=result-title]').textContent).toContain('勝利');
+    expect(q('[data-ref=result-title]').textContent).toBe('VICTORY');
+    expect(q('[data-ref=result-text]').textContent).toContain('あなたの勝利');
+    const stats = [...q('[data-ref=result-stats]').children].map((el) => el.textContent);
+    expect(stats).toEqual([`${targets.length}攻撃回数`, '100%命中率', expect.stringMatching(/^\d\/5残った自艦$/)]);
+    expect(q('[data-ref=result-record]').textContent).toBe('通算成績 1勝 0敗（勝率 100%）');
+    expect(q('[data-ref=record]').textContent).toContain('勝率 100%');
 
     q<HTMLButtonElement>('[data-ref=play-again]').click();
     expect(q('[data-ref=result]').hidden).toBe(true);
@@ -240,6 +248,40 @@ describe('画面（UI）', () => {
     expect(el.dataset.ship).toBe(ship.type.id);
     expect(el.style.getPropertyValue('--sprite')).toContain('data:image/svg+xml');
     expect(cell('ai', 0, 0).style.getPropertyValue('--sprite')).toBe('');
+  });
+
+  it('艦隊パネルに、残りの隻数と各艦の「健在・被弾・撃沈」が表示される', () => {
+    startWithRandomFleet();
+    const rows = () => [...q('[data-ref=ai-fleet]').children] as HTMLElement[];
+    expect(q('[data-ref=ai-count]').textContent).toBe('5');
+    expect(rows().map((li) => li.querySelector('.badge')!.textContent)).toEqual(Array(5).fill('健在'));
+
+    const destroyer = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
+    cell('ai', destroyer.cells[0].row, destroyer.cells[0].col).click();
+    const row = rows().find((li) => li.textContent!.includes('駆逐艦'))!;
+    expect(row.querySelector('.badge')!.textContent).toBe('被弾');
+    expect(row.querySelectorAll('.hull s.hit')).toHaveLength(1);
+
+    vi.advanceTimersByTime(500);
+    cell('ai', destroyer.cells[1].row, destroyer.cells[1].col).click();
+    const sunk = rows().find((li) => li.textContent!.includes('駆逐艦'))!;
+    expect(sunk.classList.contains('sunk')).toBe(true);
+    expect(sunk.querySelector('.badge')!.textContent).toBe('撃沈');
+    expect(q('[data-ref=ai-count]').textContent).toBe('4');
+  });
+
+  it('勝敗は1試合につき1回だけ通算成績に記録され、画面右上に表示される', () => {
+    expect(q('[data-ref=record]').textContent).toBe('通算成績 0勝 0敗 ｜ 勝率 0%');
+    startWithRandomFleet();
+    for (const t of app.game.aiBoard.ships.flatMap((s) => s.cells)) {
+      cell('ai', t.row, t.col).click();
+      vi.advanceTimersByTime(500);
+    }
+    q<HTMLButtonElement>('[data-ref=view-boards]').click();
+    expect(record.record).toEqual({ wins: 1, losses: 0 });
+    q<HTMLButtonElement>('[data-ref=restart]').click();
+    expect(record.record).toEqual({ wins: 1, losses: 0 });
+    expect(q('[data-ref=record]').textContent).toBe('通算成績 1勝 0敗 ｜ 勝率 100%');
   });
 
   it('自分の攻撃が命中・撃沈すると効果音が鳴り、外れは鳴らない', () => {

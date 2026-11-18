@@ -1,4 +1,4 @@
-import { EFFECTS } from './sprites';
+import { EFFECTS, MISSILE_VIEWBOX } from './sprites';
 import './missile.css';
 
 export type Shooter = 'player' | 'ai';
@@ -11,7 +11,7 @@ export interface FlightFrame extends Point {
   angle: number;
 }
 
-export const MISSILE_FLIGHT_MS = 450;
+export const MISSILE_FLIGHT_MS = 800;
 
 /**
  * Points along a curved flight path (a quadratic Bézier arc that rises above both ends)
@@ -51,7 +51,7 @@ export function launchMissile(
 ): () => void {
   const area = grid.getBoundingClientRect();
   const cell = target.getBoundingClientRect();
-  const size = Math.max(cell.width * 1.8, 24);
+  const size = Math.max(cell.width * 1.6, 30);
   const from = { x: shooter === 'player' ? 0 : area.width, y: area.height / 2 };
   const to = { x: cell.left - area.left + cell.width / 2, y: cell.top - area.top + cell.height / 2 };
 
@@ -60,7 +60,7 @@ export function launchMissile(
   missile.dataset.shooter = shooter;
   missile.setAttribute('aria-hidden', 'true');
   missile.style.width = `${size}px`;
-  missile.style.height = `${(size * 5) / 16}px`;
+  missile.style.height = `${(size * MISSILE_VIEWBOX.height) / MISSILE_VIEWBOX.width}px`;
   missile.style.setProperty('--sprite', EFFECTS.missile(shooter === 'player' ? 'player' : 'enemy'));
   const place = ({ x, y, angle }: FlightFrame) => ({
     transform: `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle}deg)`,
