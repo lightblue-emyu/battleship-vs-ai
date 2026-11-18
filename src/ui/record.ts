@@ -30,12 +30,21 @@ function parse(raw: string | null | undefined): GameRecord {
 }
 
 export function createRecordStore(storage: Storage | null = browserStorage()): RecordStore {
-  let record = parse(storage?.getItem(RECORD_KEY));
+  const read = () => {
+    try {
+      return parse(storage?.getItem(RECORD_KEY));
+    } catch {
+      return null;
+    }
+  };
+  let record = read() ?? { wins: 0, losses: 0 };
   return {
     get record() {
       return record;
     },
     add(won) {
+      // Re-read first so results saved by other open tabs are not overwritten.
+      record = read() ?? record;
       record = won ? { ...record, wins: record.wins + 1 } : { ...record, losses: record.losses + 1 };
       try {
         storage?.setItem(RECORD_KEY, JSON.stringify(record));
