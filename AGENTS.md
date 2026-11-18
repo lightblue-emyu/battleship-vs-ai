@@ -16,8 +16,9 @@ Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `mai
 - `src/game/` – pure game rules, **no DOM access**. `board.ts` (placement, attacks, sinking),
   `ai.ts` (hunt & target AI, evasion moves), `game.ts` (turns, phases, winner), `types.ts` (fleet, constants).
 - `src/ui/app.ts` – all DOM rendering and event handling; calls `Game` and re-renders.
-- `src/ui/sprites.ts` – pixel-art ships as letter grids (8x8 px per cell) turned into SVG data URLs.
-  Sprite rows must be exactly `length * 8` wide (checked by `tests/sprites.test.ts`).
+- `src/ui/sprites.ts` – top-down warship drawings as vector SVG (each ship is `length * CELL` x `CELL`, facing right),
+  rotated / mirrored per orientation and sliced into one SVG data URL per cell (checked by `tests/sprites.test.ts`).
+- `src/ui/record.ts` – win / loss record in localStorage (`battleship-record`); inject `createRecordStore(null)` in tests.
 - `src/ui/sound.ts` – hit/sunk sound effects synthesised with Web Audio (no audio files); `mountApp` accepts a fake
   `SoundPlayer` via `options.sound` so tests stay silent.
 - `tests/` – one test file per module; `tests/app.test.ts` drives the UI in jsdom with fake timers.
