@@ -121,6 +121,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
+  /** The player may act only on their turn and once every missile in the air has landed. */
+  function playerCanAct() {
+    return game.phase === 'playing' && game.turn === 'player' && !awaitingImpact;
+  }
+
   /** Flies a missile to `coord` and runs `onImpact` when it lands (at once if there is no missile). */
   function fireMissile(shooter: Shooter, coord: Coord, onImpact: () => void) {
     const owner: Owner = shooter === 'player' ? 'ai' : 'player';
@@ -193,7 +198,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
 
   function selectShipAt(coord: Coord) {
-    if (game.turn !== 'player') return;
+    if (!playerCanAct()) return;
     const ship = game.playerBoard.shipAtCell(coord);
     if (!ship || ship === selected) {
       selected = null;
@@ -212,7 +217,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
 
   function moveSelected(direction: Direction) {
-    if (game.phase !== 'playing' || game.turn !== 'player' || !selected) return;
+    if (!playerCanAct() || !selected) return;
     const ship = selected;
     if (!game.playerBoard.canMoveShip(ship, direction)) {
       status = `${ship.type.name}は${DIRECTION_LABELS[direction]}には動かせません。`;
@@ -230,7 +235,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
 
   function onAiGridClick(coord: Coord) {
-    if (game.phase !== 'playing' || game.turn !== 'player') return;
+    if (!playerCanAct()) return;
     if (game.aiBoard.hasBeenShot(coord)) {
       status = `${coordLabel(coord)}は既に攻撃済みです。別のマスを選んでください。`;
       render();
@@ -407,7 +412,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     }
     els.aiLevel.textContent = `AI・${DIFFICULTY_LABELS[difficulty]}`;
     if (selected && selected.hitCount > 0) selected = null;
-    const myTurn = game.phase === 'playing' && game.turn === 'player';
+    const myTurn = playerCanAct();
     els.movePanel.hidden = game.phase !== 'playing';
     els.moveInfo.textContent = selected
       ? `移動：${selected.type.name}`
@@ -422,7 +427,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
   function renderBoards() {
     const preview = previewCells();
-    const myTurn = game.phase === 'playing' && game.turn === 'player';
+    const myTurn = playerCanAct();
     forEachCell(els.grid, 'player', (cell, coord) => {
       const board = game.playerBoard;
       const ship = board.shipAtCell(coord);
@@ -448,7 +453,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       cell.setAttribute('aria-label', cellAria('player', coord, shot, ship !== null, ship ? isSunk(ship) : false));
     });
 
-    const canAttack = game.phase === 'playing' && game.turn === 'player';
+    const canAttack = playerCanAct();
     forEachCell(els.grid, 'ai', (cell, coord) => {
       const board = game.aiBoard;
       const ship = board.shipAtCell(coord);
