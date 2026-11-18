@@ -84,6 +84,15 @@ const SPLASH = [
   '........',
 ];
 
+/** Missile flying to the right: fins at the back, engine flame on the left. */
+const MISSILE = [
+  '..RR............',
+  'OYWLLLLLLLLLWW..',
+  'YOWGGGGGGGGGLLWW',
+  'OYWLLLLLLLLLWW..',
+  '..RR............',
+];
+
 type Palette = Record<string, string>;
 
 /** Colours picked from the NES palette. */
@@ -173,6 +182,8 @@ export function shipIcon(shipId: string, facing: Facing, palette: PaletteName = 
 export const EFFECTS = {
   hit: () => cached('fx:hit', () => dataUrl(toSvg(EXPLOSION, PALETTES.player, '0 0 8 8'))),
   miss: () => cached('fx:miss', () => dataUrl(toSvg(SPLASH, PALETTES.player, '0 0 8 8'))),
+  missile: (palette: Facing) =>
+    cached(`fx:missile:${palette}`, () => dataUrl(toSvg(MISSILE, PALETTES[palette], `0 0 ${MISSILE[0].length} ${MISSILE.length}`))),
 };
 
-export const SPRITE_ART = { ships: SHIP_ART, explosion: EXPLOSION, splash: SPLASH, cellPx: CELL_PX };
+export const SPRITE_ART = { ships: SHIP_ART, explosion: EXPLOSION, splash: SPLASH, missile: MISSILE, cellPx: CELL_PX };

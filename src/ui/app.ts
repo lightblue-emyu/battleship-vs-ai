@@ -12,6 +12,7 @@ import {
   type Random,
   type Ship,
 } from '../game/types';
+import { launchMissile, MISSILE_FLIGHT_MS, prefersReducedMotion, type Shooter } from './missile';
 import { createSoundPlayer, soundForOutcome, type SoundPlayer } from './sound';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
 
@@ -19,6 +20,8 @@ export interface AppOptions {
   random?: Random;
   /** Pause before the AI fires, so the player can follow what happened. */
   aiDelayMs?: number;
+  /** How long an attack missile flies before it lands (0 = no missile). */
+  missileMs?: number;
   /** AI strength selected when the page opens. */
   difficulty?: Difficulty;
   /** Hit / sunk sound effects; defaults to Web Audio synthesis. */
@@ -41,6 +44,7 @@ export function coordLabel({ row, col }: Coord): string {
 export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const random = options.random ?? Math.random;
   const aiDelayMs = options.aiDelayMs ?? 700;
+  const missileMs = options.missileMs ?? MISSILE_FLIGHT_MS;
   const sound = options.sound ?? createSoundPlayer();
 
   let difficulty: Difficulty = options.difficulty ?? 'normal';
@@ -54,6 +58,9 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let selected: Ship | null = null;
   let lastMoved: Ship | null = null;
   let aiTimer: ReturnType<typeof setTimeout> | undefined;
+  const missiles = new Set<() => void>();
+  /** True from launch until impact, so a winning shot does not reveal the result early. */
+  let awaitingImpact = false;
 
   root.innerHTML = TEMPLATE;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -88,6 +95,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function reset() {
     clearTimeout(aiTimer);
     aiTimer = undefined;
+    cancelMissiles();
     game = new Game(random, difficulty);
     orientation = 'horizontal';
     hover = null;
@@ -98,6 +106,33 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     lastMoved = null;
     status = '船を配置してください。自陣（左側）のマスをクリックすると置けます。';
     render();
+  }
+
+  /** Flies a missile to `coord` and runs `onImpact` when it lands (at once if there is no missile). */
+  function fireMissile(shooter: Shooter, coord: Coord, onImpact: () => void) {
+    const owner: Owner = shooter === 'player' ? 'ai' : 'player';
+    const target = els.grid.querySelector<HTMLElement>(
+      `button.cell[data-owner=${owner}][data-row="${coord.row}"][data-col="${coord.col}"]`,
+    );
+    const land = () => {
+      awaitingImpact = false;
+      onImpact();
+    };
+    if (missileMs <= 0 || prefersReducedMotion() || !target) {
+      land();
+      return;
+    }
+    const cancel = launchMissile(els.grid, target, shooter, missileMs, () => {
+      missiles.delete(cancel);
+      land();
+    });
+    missiles.add(cancel);
+  }
+
+  function cancelMissiles() {
+    for (const cancel of missiles) cancel();
+    missiles.clear();
+    awaitingImpact = false;
   }
 
   function addLog(entry: LogEntry) {
@@ -192,15 +227,20 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     selected = null;
     lastMoved = null;
     lastShot = { side: 'player', coord };
-    playAttackSound(result);
-    const text = describe(result, 'player');
-    addLog({ side: 'player', text: `あなた → ${text}` });
-    status = `あなたの攻撃 ${text}`;
-    if (game.phase === 'playing') {
-      status += ' ／ AIが狙いを定めています…';
-      aiTimer = setTimeout(runAiTurn, aiDelayMs);
-    }
+    awaitingImpact = true;
+    status = `${coordLabel(coord)}へミサイル発射！`;
     render();
+    fireMissile('player', coord, () => {
+      playAttackSound(result);
+      const text = describe(result, 'player');
+      addLog({ side: 'player', text: `あなた → ${text}` });
+      status = `あなたの攻撃 ${text}`;
+      if (game.phase === 'playing') {
+        status += ' ／ AIが狙いを定めています…';
+        aiTimer = setTimeout(runAiTurn, aiDelayMs);
+      }
+      render();
+    });
   }
 
   function runAiTurn() {
@@ -214,11 +254,18 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const result = action.result;
       lastShot = { side: 'ai', coord: result.coord };
       if (result.ship === lastMoved) lastMoved = null;
-      playAttackSound(result);
-      const text = describe(result, 'ai');
-      addLog({ side: 'ai', text: `AI → ${text}` });
-      status = `AIの攻撃 ${text}`;
-      if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
+      awaitingImpact = true;
+      status = `AIが${coordLabel(result.coord)}へミサイル発射！`;
+      render();
+      fireMissile('ai', result.coord, () => {
+        playAttackSound(result);
+        const text = describe(result, 'ai');
+        addLog({ side: 'ai', text: `AI → ${text}` });
+        status = `AIの攻撃 ${text}`;
+        if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
+        render();
+      });
+      return;
     }
     render();
   }
@@ -393,7 +440,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const ship = board.shipAtCell(coord);
       const shot = board.shotAt(coord);
       const sunk = ship !== null && isSunk(ship);
-      const reveal = sunk || (game.phase === 'over' && ship !== null);
+      const reveal = sunk || (game.phase === 'over' && !awaitingImpact && ship !== null);
       setCellState(cell, {
         ship: reveal,
         hit: shot === 'hit',
@@ -420,7 +467,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
 
   function renderResult() {
-    const over = game.phase === 'over';
+    const over = game.phase === 'over' && !awaitingImpact;
     els.result.hidden = !over || resultDismissed;
     if (!over) return;
     const playerWon = game.winner === 'player';
@@ -447,6 +494,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     },
     destroy() {
       clearTimeout(aiTimer);
+      cancelMissiles();
       document.removeEventListener('keydown', onKeydown);
       root.innerHTML = '';
     },

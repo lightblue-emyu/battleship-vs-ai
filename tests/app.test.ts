@@ -19,7 +19,7 @@ beforeEach(() => {
   document.body.append(root);
   sounds = [];
   sound = { muted: false, unlock: vi.fn(), play: (effect) => void (sound.muted || sounds.push(effect)) };
-  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, sound });
+  app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 0, sound });
 });
 
 afterEach(() => {
