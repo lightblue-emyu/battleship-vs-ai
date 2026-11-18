@@ -97,6 +97,32 @@ describe('画面（UI）', () => {
     expect(root.querySelectorAll('[data-owner=ai].hit, [data-owner=ai].miss')).toHaveLength(1);
   });
 
+  it('AIのミサイルが飛んでいる間は、攻撃も船の選択もできない', () => {
+    app.destroy();
+    app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 800, sound, record });
+    startWithRandomFleet();
+    const shots = (owner: 'player' | 'ai') =>
+      root.querySelectorAll(`button.cell[data-owner=${owner}].hit, button.cell[data-owner=${owner}].miss`).length;
+
+    cell('ai', 0, 0).click();
+    vi.advanceTimersByTime(800 + 500);
+    expect(root.querySelector('.missile[data-shooter=ai]')).not.toBeNull();
+    expect(q('[data-ref=status]').textContent).toMatch(/^AIが.+へミサイル発射！/);
+    expect(cell('ai', 5, 5).disabled).toBe(true);
+
+    cell('ai', 5, 5).click();
+    root.querySelector<HTMLButtonElement>('button.cell[data-owner=player].ship')!.click();
+    expect(shots('ai')).toBe(1);
+    expect(root.querySelector('.missile[data-shooter=player]')).toBeNull();
+    expect(root.querySelector('button.cell[data-owner=player].selected')).toBeNull();
+
+    vi.advanceTimersByTime(800);
+    expect(root.querySelector('.missile')).toBeNull();
+    expect(shots('player')).toBe(1);
+    cell('ai', 5, 5).click();
+    expect(shots('ai')).toBe(2);
+  });
+
   it('攻撃済みのマスはもう一度押しても無視される', () => {
     startWithRandomFleet();
     cell('ai', 3, 3).click();
