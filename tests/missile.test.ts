@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountApp } from '../src/ui/app';
 import { flightPath } from '../src/ui/missile';
+import type { SoundEffect } from '../src/ui/sound';
 import { SPRITE_ART } from '../src/ui/sprites';
 import { seededRandom } from './helpers';
 
@@ -38,10 +39,14 @@ describe('ミサイルの演出（画面）', () => {
   const cell = (owner: 'player' | 'ai', row: number, col: number) =>
     q<HTMLButtonElement>(`.cell[data-owner=${owner}][data-row="${row}"][data-col="${col}"]`);
 
+  let sounds: SoundEffect[];
+
   function mount() {
     root = document.createElement('div');
     document.body.append(root);
-    app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 400 });
+    sounds = [];
+    const sound = { muted: false, unlock: vi.fn(), play: (effect: SoundEffect) => void sounds.push(effect) };
+    app = mountApp(root, { random: seededRandom(9), aiDelayMs: 500, missileMs: 400, sound });
     q<HTMLButtonElement>('[data-ref=random]').click();
     q<HTMLButtonElement>('[data-ref=start]').click();
   }
@@ -98,5 +103,32 @@ describe('ミサイルの演出（画面）', () => {
     cell('ai', 3, 3).click();
     expect(root.querySelectorAll('.missile, .incoming')).toHaveLength(0);
     expect(cell('ai', 3, 3).classList.contains('hit') || cell('ai', 3, 3).classList.contains('miss')).toBe(true);
+  });
+
+  it('メッセージ・戦況ログ・効果音は、ミサイルが着弾したときに出る', () => {
+    mount();
+    const target = app.game.aiBoard.ships[0].cells[0];
+    cell('ai', target.row, target.col).click();
+    expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
+    expect(q('[data-ref=status]').textContent).not.toContain('命中');
+    expect(sounds).toEqual([]);
+    expect(root.textContent).not.toContain('あなた →');
+
+    vi.advanceTimersByTime(400);
+    expect(q('[data-ref=status]').textContent).toContain('命中');
+    expect(sounds).toEqual(['hit']);
+    expect(root.textContent).toContain('あなた →');
+  });
+
+  it('AIの攻撃も、着弾してから結果と効果音が出る', () => {
+    mount();
+    cell('ai', 0, 0).click();
+    vi.advanceTimersByTime(500);
+    expect(q('[data-ref=status]').textContent).toContain('AIが');
+    expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
+    expect(root.textContent).not.toContain('AI →');
+    vi.advanceTimersByTime(400);
+    expect(q('[data-ref=status]').textContent).toContain('AIの攻撃');
+    expect(root.textContent).toContain('AI →');
   });
 });

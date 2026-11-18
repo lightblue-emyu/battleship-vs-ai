@@ -87,6 +87,27 @@ describe('Game', () => {
   });
 });
 
+describe('Game：AIの強さ', () => {
+  it('初期値は「普通」で、開始前なら変更できるが開始後は変更できない', () => {
+    const game = new Game(seededRandom(1));
+    expect(game.difficulty).toBe('normal');
+    game.setDifficulty('hard');
+    expect(game.difficulty).toBe('hard');
+    game.placeRemainingRandomly();
+    game.start();
+    expect(() => game.setDifficulty('easy')).toThrow('ゲーム開始前');
+    expect(game.difficulty).toBe('hard');
+  });
+
+  it('弱いAIは隣に外れ弾を受けても回避せず、必ず攻撃する', () => {
+    const game = new Game(() => 0, 'easy');
+    game.placeRemainingRandomly();
+    game.start();
+    game.playerAttack(findMissNextToShip(game));
+    expect(game.aiTakeTurn().kind).toBe('attack');
+  });
+});
+
 describe('Game：船の移動', () => {
   it('プレイヤーが船を動かすと手番を使い、AIの番になる', () => {
     const game = startedGame();

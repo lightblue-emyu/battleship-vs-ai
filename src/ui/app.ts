@@ -2,15 +2,18 @@ import { Board, isSunk, sameCoord, shipCells, shipOrientation } from '../game/bo
 import { Game } from '../game/game';
 import {
   BOARD_SIZE,
+  DIFFICULTIES,
   FLEET,
   type AttackResult,
   type Coord,
+  type Difficulty,
   type Direction,
   type Orientation,
   type Random,
   type Ship,
 } from '../game/types';
 import { launchMissile, MISSILE_FLIGHT_MS, prefersReducedMotion, type Shooter } from './missile';
+import { createSoundPlayer, soundForOutcome, type SoundPlayer } from './sound';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
 
 export interface AppOptions {
@@ -19,6 +22,10 @@ export interface AppOptions {
   aiDelayMs?: number;
   /** How long an attack missile flies before it lands (0 = no missile). */
   missileMs?: number;
+  /** AI strength selected when the page opens. */
+  difficulty?: Difficulty;
+  /** Hit / sunk sound effects; defaults to Web Audio synthesis. */
+  sound?: SoundPlayer;
 }
 
 type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
@@ -26,6 +33,7 @@ type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
 const COLUMN_LABELS = 'ABCDEFGHIJ';
 
 const DIRECTION_LABELS: Record<Direction, string> = { up: '上', down: '下', left: '左', right: '右' };
+const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: '弱い', normal: '普通', hard: '強い' };
 const ARROW_KEYS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
 export function coordLabel({ row, col }: Coord): string {
@@ -37,8 +45,10 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const random = options.random ?? Math.random;
   const aiDelayMs = options.aiDelayMs ?? 700;
   const missileMs = options.missileMs ?? MISSILE_FLIGHT_MS;
+  const sound = options.sound ?? createSoundPlayer();
 
-  let game = new Game(random);
+  let difficulty: Difficulty = options.difficulty ?? 'normal';
+  let game = new Game(random, difficulty);
   let orientation: Orientation = 'horizontal';
   let hover: Coord | null = null;
   let lastShot: { side: 'player' | 'ai'; coord: Coord } | null = null;
@@ -59,6 +69,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     rotate: $<HTMLButtonElement>('[data-ref=rotate]'),
     random: $<HTMLButtonElement>('[data-ref=random]'),
     clear: $<HTMLButtonElement>('[data-ref=clear]'),
+    difficultyButtons: [...root.querySelectorAll<HTMLButtonElement>('[data-difficulty]')],
+    aiLevel: $('[data-ref=ai-level]'),
     movePanel: $('[data-ref=move-panel]'),
     moveInfo: $('[data-ref=move-info]'),
     moveButtons: [...root.querySelectorAll<HTMLButtonElement>('[data-dir]')],
@@ -74,6 +86,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     resultText: $('[data-ref=result-text]'),
     playAgain: $<HTMLButtonElement>('[data-ref=play-again]'),
     viewBoards: $<HTMLButtonElement>('[data-ref=view-boards]'),
+    soundToggle: $<HTMLButtonElement>('[data-ref=sound-toggle]'),
   };
   buildGrid(els.grid);
 
@@ -81,7 +94,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     clearTimeout(aiTimer);
     aiTimer = undefined;
     cancelMissiles();
-    game = new Game(random);
+    game = new Game(random, difficulty);
     orientation = 'horizontal';
     hover = null;
     lastShot = null;
@@ -93,15 +106,22 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
-  function fireMissile(shooter: Shooter, coord: Coord) {
-    if (missileMs <= 0 || prefersReducedMotion()) return;
+  /** Flies a missile to `coord`, then runs `onImpact`; returns the flight time in ms (0 = landed at once). */
+  function fireMissile(shooter: Shooter, coord: Coord, onImpact: () => void): number {
     const owner: Owner = shooter === 'player' ? 'ai' : 'player';
     const target = els.grid.querySelector<HTMLElement>(
       `button.cell[data-owner=${owner}][data-row="${coord.row}"][data-col="${coord.col}"]`,
     );
-    if (!target) return;
-    const cancel = launchMissile(els.grid, target, shooter, missileMs, () => missiles.delete(cancel));
+    if (missileMs <= 0 || prefersReducedMotion() || !target) {
+      onImpact();
+      return 0;
+    }
+    const cancel = launchMissile(els.grid, target, shooter, missileMs, () => {
+      missiles.delete(cancel);
+      onImpact();
+    });
     missiles.add(cancel);
+    return missileMs;
   }
 
   function cancelMissiles() {
@@ -119,6 +139,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (result.outcome === 'miss') return `${where}：外れ`;
     if (result.outcome === 'hit') return `${where}：命中！`;
     return `${where}：命中！ ${whose}${result.ship!.type.name}を撃沈！`;
+  }
+
+  function playAttackSound(result: AttackResult) {
+    const effect = soundForOutcome(result.outcome);
+    if (effect) sound.play(effect);
   }
 
   function onPlayerGridClick(coord: Coord) {
@@ -196,15 +221,17 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     selected = null;
     lastMoved = null;
     lastShot = { side: 'player', coord };
-    const text = describe(result, 'player');
-    addLog({ side: 'player', text: `あなた → ${text}` });
-    status = `あなたの攻撃 ${text}`;
-    if (game.phase === 'playing') {
-      status += ' ／ AIが狙いを定めています…';
-      aiTimer = setTimeout(runAiTurn, aiDelayMs);
-    }
+    status = `${coordLabel(coord)}へミサイル発射！`;
     render();
-    fireMissile('player', coord);
+    const flightMs = fireMissile('player', coord, () => {
+      playAttackSound(result);
+      const text = describe(result, 'player');
+      addLog({ side: 'player', text: `あなた → ${text}` });
+      status = `あなたの攻撃 ${text}`;
+      if (game.phase === 'playing') status += ' ／ AIが狙いを定めています…';
+      render();
+    });
+    if (game.phase === 'playing') aiTimer = setTimeout(runAiTurn, Math.max(aiDelayMs, flightMs));
   }
 
   function runAiTurn() {
@@ -218,15 +245,22 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const result = action.result;
       lastShot = { side: 'ai', coord: result.coord };
       if (result.ship === lastMoved) lastMoved = null;
-      const text = describe(result, 'ai');
-      addLog({ side: 'ai', text: `AI → ${text}` });
-      status = `AIの攻撃 ${text}`;
-      if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
+      status = `AIが${coordLabel(result.coord)}へミサイル発射！`;
+      render();
+      fireMissile('ai', result.coord, () => {
+        playAttackSound(result);
+        const text = describe(result, 'ai');
+        addLog({ side: 'ai', text: `AI → ${text}` });
+        status = `AIの攻撃 ${text}`;
+        if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
+        render();
+      });
+      return;
     }
     render();
-    if (action.kind === 'attack') fireMissile('ai', action.result.coord);
   }
 
+  root.addEventListener('click', () => sound.unlock());
   els.grid.addEventListener('click', (e) => {
     const target = cellTarget(e.target);
     if (target?.owner === 'player') onPlayerGridClick(target.coord);
@@ -255,6 +289,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   };
   els.rotate.addEventListener('click', rotate);
   const onKeydown = (e: KeyboardEvent) => {
+    sound.unlock();
     if (e.key === 'r' || e.key === 'R') rotate();
     const direction = ARROW_KEYS[e.key];
     if (direction && selected) {
@@ -282,7 +317,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (game.phase !== 'placement' || game.nextShipToPlace()) return;
     game.start();
     hover = null;
-    addLog({ side: 'system', text: '戦闘開始！' });
+    addLog({ side: 'system', text: `戦闘開始！（AIの強さ：${DIFFICULTY_LABELS[difficulty]}）` });
     status = '戦闘開始！敵陣（右側）をクリックして攻撃。自分の船をクリックすると、攻撃の代わりに1マス動かせます。';
     render();
   });
@@ -290,12 +325,30 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     button.addEventListener('click', () => moveSelected(button.dataset.dir as Direction));
   }
   els.moveCancel.addEventListener('click', deselect);
+  for (const button of els.difficultyButtons) {
+    button.addEventListener('click', () => {
+      if (game.phase !== 'placement') return;
+      difficulty = button.dataset.difficulty as Difficulty;
+      game.setDifficulty(difficulty);
+      status = `AIの強さを「${DIFFICULTY_LABELS[difficulty]}」にしました。`;
+      render();
+    });
+  }
   els.restart.addEventListener('click', reset);
   els.playAgain.addEventListener('click', reset);
   els.viewBoards.addEventListener('click', () => {
     resultDismissed = true;
     render();
   });
+  const renderSoundToggle = () => {
+    els.soundToggle.textContent = sound.muted ? '効果音：OFF' : '効果音：ON';
+    els.soundToggle.setAttribute('aria-pressed', String(!sound.muted));
+  };
+  els.soundToggle.addEventListener('click', () => {
+    sound.muted = !sound.muted;
+    renderSoundToggle();
+  });
+  renderSoundToggle();
 
   function render() {
     els.status.textContent = status;
@@ -324,6 +377,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.rotate.disabled = !placing || !next;
     els.start.disabled = !placing || next !== null;
     els.clear.disabled = !placing || game.playerBoard.ships.length === 0;
+    for (const button of els.difficultyButtons) {
+      button.setAttribute('aria-pressed', String(button.dataset.difficulty === difficulty));
+      button.disabled = !placing;
+    }
+    els.aiLevel.textContent = `AI・${DIFFICULTY_LABELS[difficulty]}`;
     if (selected && selected.hitCount > 0) selected = null;
     const myTurn = game.phase === 'playing' && game.turn === 'player';
     els.movePanel.hidden = game.phase !== 'playing';
@@ -536,12 +594,17 @@ const TEMPLATE = /* html */ `
   <header class="site-header">
     <h1>BATTLESHIP <span>VS AI</span></h1>
     <p>宇宙に隠れた敵艦隊をすべて撃沈したら勝ち。自分の番に「1マス攻撃」か「無傷の船を1マス移動」を選べます。</p>
+    <button type="button" class="sound-toggle" data-ref="sound-toggle" title="命中・撃沈の効果音を切り替え"></button>
   </header>
 
   <p class="status" data-ref="status" role="status" aria-live="polite"></p>
 
   <section class="toolbar" aria-label="操作">
     <div class="placement" data-ref="placement">
+      <div class="difficulty" role="group" aria-label="AIの強さ">
+        <span>AIの強さ</span>
+        ${DIFFICULTIES.map((d) => `<button type="button" data-difficulty="${d}">${DIFFICULTY_LABELS[d]}</button>`).join('')}
+      </div>
       <strong data-ref="current-ship"></strong>
       <div class="buttons">
         <button type="button" data-ref="rotate">向きを変える (R)</button>
@@ -567,7 +630,7 @@ const TEMPLATE = /* html */ `
     <div class="zones">
       <h2 id="player-title">自陣 <small>あなた</small></h2>
       <span class="vs" aria-hidden="true">VS</span>
-      <h2 id="ai-title" class="enemy">敵陣 <small>AI</small></h2>
+      <h2 id="ai-title" class="enemy">敵陣 <small data-ref="ai-level">AI</small></h2>
     </div>
     <div class="grid-scroll">
       <div class="grid" data-ref="grid"></div>
