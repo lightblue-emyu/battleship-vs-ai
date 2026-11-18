@@ -10,12 +10,15 @@ import {
   type Random,
   type Ship,
 } from '../game/types';
+import { createSoundPlayer, soundForOutcome, type SoundPlayer } from './sound';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
 
 export interface AppOptions {
   random?: Random;
   /** Pause before the AI fires, so the player can follow what happened. */
   aiDelayMs?: number;
+  /** Hit / sunk sound effects; defaults to Web Audio synthesis. */
+  sound?: SoundPlayer;
 }
 
 type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
@@ -33,6 +36,7 @@ export function coordLabel({ row, col }: Coord): string {
 export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const random = options.random ?? Math.random;
   const aiDelayMs = options.aiDelayMs ?? 700;
+  const sound = options.sound ?? createSoundPlayer();
 
   let game = new Game(random);
   let orientation: Orientation = 'horizontal';
@@ -69,6 +73,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     resultText: $('[data-ref=result-text]'),
     playAgain: $<HTMLButtonElement>('[data-ref=play-again]'),
     viewBoards: $<HTMLButtonElement>('[data-ref=view-boards]'),
+    soundToggle: $<HTMLButtonElement>('[data-ref=sound-toggle]'),
   };
   buildGrid(els.grid);
 
@@ -97,6 +102,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (result.outcome === 'miss') return `${where}：外れ`;
     if (result.outcome === 'hit') return `${where}：命中！`;
     return `${where}：命中！ ${whose}${result.ship!.type.name}を撃沈！`;
+  }
+
+  function playAttackSound(result: AttackResult) {
+    const effect = soundForOutcome(result.outcome);
+    if (effect) sound.play(effect);
   }
 
   function onPlayerGridClick(coord: Coord) {
@@ -174,6 +184,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     selected = null;
     lastMoved = null;
     lastShot = { side: 'player', coord };
+    playAttackSound(result);
     const text = describe(result, 'player');
     addLog({ side: 'player', text: `あなた → ${text}` });
     status = `あなたの攻撃 ${text}`;
@@ -195,6 +206,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const result = action.result;
       lastShot = { side: 'ai', coord: result.coord };
       if (result.ship === lastMoved) lastMoved = null;
+      playAttackSound(result);
       const text = describe(result, 'ai');
       addLog({ side: 'ai', text: `AI → ${text}` });
       status = `AIの攻撃 ${text}`;
@@ -203,6 +215,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
+  root.addEventListener('click', () => sound.unlock());
   els.grid.addEventListener('click', (e) => {
     const target = cellTarget(e.target);
     if (target?.owner === 'player') onPlayerGridClick(target.coord);
@@ -231,6 +244,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   };
   els.rotate.addEventListener('click', rotate);
   const onKeydown = (e: KeyboardEvent) => {
+    sound.unlock();
     if (e.key === 'r' || e.key === 'R') rotate();
     const direction = ARROW_KEYS[e.key];
     if (direction && selected) {
@@ -272,6 +286,15 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     resultDismissed = true;
     render();
   });
+  const renderSoundToggle = () => {
+    els.soundToggle.textContent = sound.muted ? '効果音：OFF' : '効果音：ON';
+    els.soundToggle.setAttribute('aria-pressed', String(!sound.muted));
+  };
+  els.soundToggle.addEventListener('click', () => {
+    sound.muted = !sound.muted;
+    renderSoundToggle();
+  });
+  renderSoundToggle();
 
   function render() {
     els.status.textContent = status;
@@ -511,6 +534,7 @@ const TEMPLATE = /* html */ `
   <header class="site-header">
     <h1>BATTLESHIP <span>VS AI</span></h1>
     <p>宇宙に隠れた敵艦隊をすべて撃沈したら勝ち。自分の番に「1マス攻撃」か「無傷の船を1マス移動」を選べます。</p>
+    <button type="button" class="sound-toggle" data-ref="sound-toggle" title="命中・撃沈の効果音を切り替え"></button>
   </header>
 
   <p class="status" data-ref="status" role="status" aria-live="polite"></p>
