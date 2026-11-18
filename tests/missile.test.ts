@@ -79,7 +79,9 @@ describe('ミサイルの演出（画面）', () => {
     cell('ai', 0, 0).click();
     vi.advanceTimersByTime(400);
     expect(root.querySelectorAll('.missile')).toHaveLength(0);
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(499);
+    expect(root.querySelectorAll('.missile')).toHaveLength(0);
+    vi.advanceTimersByTime(1);
     expect(q('.grid .missile').dataset.shooter).toBe('ai');
     const incoming = root.querySelectorAll<HTMLElement>('.cell.incoming');
     expect(incoming).toHaveLength(1);
@@ -123,7 +125,7 @@ describe('ミサイルの演出（画面）', () => {
   it('AIの攻撃も、着弾してから結果と効果音が出る', () => {
     mount();
     cell('ai', 0, 0).click();
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(900);
     expect(q('[data-ref=status]').textContent).toContain('AIが');
     expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
     expect(root.textContent).not.toContain('AI →');

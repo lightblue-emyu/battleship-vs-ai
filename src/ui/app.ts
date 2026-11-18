@@ -106,22 +106,21 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
-  /** Flies a missile to `coord`, then runs `onImpact`; returns the flight time in ms (0 = landed at once). */
-  function fireMissile(shooter: Shooter, coord: Coord, onImpact: () => void): number {
+  /** Flies a missile to `coord` and runs `onImpact` when it lands (at once if there is no missile). */
+  function fireMissile(shooter: Shooter, coord: Coord, onImpact: () => void) {
     const owner: Owner = shooter === 'player' ? 'ai' : 'player';
     const target = els.grid.querySelector<HTMLElement>(
       `button.cell[data-owner=${owner}][data-row="${coord.row}"][data-col="${coord.col}"]`,
     );
     if (missileMs <= 0 || prefersReducedMotion() || !target) {
       onImpact();
-      return 0;
+      return;
     }
     const cancel = launchMissile(els.grid, target, shooter, missileMs, () => {
       missiles.delete(cancel);
       onImpact();
     });
     missiles.add(cancel);
-    return missileMs;
   }
 
   function cancelMissiles() {
@@ -223,15 +222,17 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     lastShot = { side: 'player', coord };
     status = `${coordLabel(coord)}へミサイル発射！`;
     render();
-    const flightMs = fireMissile('player', coord, () => {
+    fireMissile('player', coord, () => {
       playAttackSound(result);
       const text = describe(result, 'player');
       addLog({ side: 'player', text: `あなた → ${text}` });
       status = `あなたの攻撃 ${text}`;
-      if (game.phase === 'playing') status += ' ／ AIが狙いを定めています…';
+      if (game.phase === 'playing') {
+        status += ' ／ AIが狙いを定めています…';
+        aiTimer = setTimeout(runAiTurn, aiDelayMs);
+      }
       render();
     });
-    if (game.phase === 'playing') aiTimer = setTimeout(runAiTurn, Math.max(aiDelayMs, flightMs));
   }
 
   function runAiTurn() {
