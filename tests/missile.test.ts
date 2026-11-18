@@ -133,4 +133,24 @@ describe('ミサイルの演出（画面）', () => {
     expect(q('[data-ref=status]').textContent).toContain('AIの攻撃');
     expect(root.textContent).toContain('AI →');
   });
+
+  it('最後の1発で勝っても、勝敗はミサイルが着弾してから表示する', () => {
+    mount();
+    const unshot = () =>
+      app.game.aiBoard.ships.flatMap((s) => s.cells).filter((c) => !app.game.aiBoard.hasBeenShot(c));
+    while (unshot().length > 1) {
+      const t = unshot()[0];
+      cell('ai', t.row, t.col).click();
+      vi.advanceTimersByTime(400 + 500 + 400);
+    }
+    const last = unshot()[0];
+    cell('ai', last.row, last.col).click();
+    expect(app.game.phase).toBe('over');
+    expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
+    expect(q('[data-ref=result]').hidden).toBe(true);
+
+    vi.advanceTimersByTime(400);
+    expect(q('[data-ref=result]').hidden).toBe(false);
+    expect(q('[data-ref=status]').textContent).toContain('あなたの勝利');
+  });
 });

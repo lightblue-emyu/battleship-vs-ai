@@ -59,6 +59,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let lastMoved: Ship | null = null;
   let aiTimer: ReturnType<typeof setTimeout> | undefined;
   const missiles = new Set<() => void>();
+  /** True from launch until impact, so a winning shot does not reveal the result early. */
+  let awaitingImpact = false;
 
   root.innerHTML = TEMPLATE;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -112,13 +114,17 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     const target = els.grid.querySelector<HTMLElement>(
       `button.cell[data-owner=${owner}][data-row="${coord.row}"][data-col="${coord.col}"]`,
     );
-    if (missileMs <= 0 || prefersReducedMotion() || !target) {
+    const land = () => {
+      awaitingImpact = false;
       onImpact();
+    };
+    if (missileMs <= 0 || prefersReducedMotion() || !target) {
+      land();
       return;
     }
     const cancel = launchMissile(els.grid, target, shooter, missileMs, () => {
       missiles.delete(cancel);
-      onImpact();
+      land();
     });
     missiles.add(cancel);
   }
@@ -126,6 +132,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function cancelMissiles() {
     for (const cancel of missiles) cancel();
     missiles.clear();
+    awaitingImpact = false;
   }
 
   function addLog(entry: LogEntry) {
@@ -220,6 +227,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     selected = null;
     lastMoved = null;
     lastShot = { side: 'player', coord };
+    awaitingImpact = true;
     status = `${coordLabel(coord)}へミサイル発射！`;
     render();
     fireMissile('player', coord, () => {
@@ -246,6 +254,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const result = action.result;
       lastShot = { side: 'ai', coord: result.coord };
       if (result.ship === lastMoved) lastMoved = null;
+      awaitingImpact = true;
       status = `AIが${coordLabel(result.coord)}へミサイル発射！`;
       render();
       fireMissile('ai', result.coord, () => {
@@ -431,7 +440,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       const ship = board.shipAtCell(coord);
       const shot = board.shotAt(coord);
       const sunk = ship !== null && isSunk(ship);
-      const reveal = sunk || (game.phase === 'over' && ship !== null);
+      const reveal = sunk || (game.phase === 'over' && !awaitingImpact && ship !== null);
       setCellState(cell, {
         ship: reveal,
         hit: shot === 'hit',
@@ -458,7 +467,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   }
 
   function renderResult() {
-    const over = game.phase === 'over';
+    const over = game.phase === 'over' && !awaitingImpact;
     els.result.hidden = !over || resultDismissed;
     if (!over) return;
     const playerWon = game.winner === 'player';

@@ -20,11 +20,6 @@
 .cell.incoming.hit[data-owner='player'] { background-color: #061646; }
 @keyframes lock-on { 50% { outline-color: #f83800; } }
 
-/* Show the win/lose dialog only after the final missile has landed. */
-.result:not([hidden]) { animation: result-in 0.2s 0.45s both; }
-@keyframes result-in { from { opacity: 0; } }
-
 @media (prefers-reduced-motion: reduce) {
   .missile { display: none; }
-  .result:not([hidden]) { animation: none; }
 }
