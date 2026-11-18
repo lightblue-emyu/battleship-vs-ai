@@ -63,6 +63,8 @@ body::after {
 }
 .site-header h1 span { color: var(--accent); text-shadow: 3px 3px 0 #a81000; }
 .site-header p { margin: 0; color: var(--muted); }
+.sound-toggle { margin-top: 10px; padding: 4px 10px; font-size: 0.8rem; }
+.sound-toggle[aria-pressed='false'] { color: var(--muted); }
 
 .status {
   min-height: 3em;
