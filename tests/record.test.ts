@@ -36,10 +36,25 @@ describe('通算成績', () => {
     expect(createRecordStore(memoryStorage({ [RECORD_KEY]: '{"wins":-3,"losses":"x"}' })).record).toEqual({ wins: 0, losses: 0 });
   });
 
-  it('保存できない環境でも、その場では成績を数える', () => {
+  it('保存できない環境でも、その場では成績を数え続ける', () => {
     const store = createRecordStore(null);
     store.add(false);
-    expect(store.record).toEqual({ wins: 0, losses: 1 });
+    store.add(true);
+    expect(store.record).toEqual({ wins: 1, losses: 1 });
+  });
+
+  it('読み込み・書き込みでエラーが出ても、その場の成績は消えない', () => {
+    const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('full'); } } as unknown as Storage;
+    const store = createRecordStore(broken);
+    store.add(true);
+    store.add(true);
+    expect(store.record).toEqual({ wins: 2, losses: 0 });
+
+    const storage = memoryStorage({ [RECORD_KEY]: '{"wins":5,"losses":5}' });
+    const full = createRecordStore({ getItem: storage.getItem, setItem: () => { throw new Error('full'); } } as unknown as Storage);
+    full.add(true);
+    full.add(true);
+    expect(full.record).toEqual({ wins: 7, losses: 5 });
   });
 
   it('勝率は四捨五入した整数％（試合がなければ0％）', () => {

@@ -30,26 +30,32 @@ function parse(raw: string | null | undefined): GameRecord {
 }
 
 export function createRecordStore(storage: Storage | null = browserStorage()): RecordStore {
-  const read = () => {
+  /** Saved totals, or null when nothing can be read (no storage, no data yet, or read error). */
+  const read = (): GameRecord | null => {
     try {
-      return parse(storage?.getItem(RECORD_KEY));
+      const raw = storage?.getItem(RECORD_KEY);
+      return raw == null ? null : parse(raw);
     } catch {
       return null;
     }
   };
   let record = read() ?? { wins: 0, losses: 0 };
+  // Only trust storage over memory while our last write succeeded; otherwise it may be stale.
+  let synced = true;
   return {
     get record() {
       return record;
     },
     add(won) {
       // Re-read first so results saved by other open tabs are not overwritten.
-      record = read() ?? record;
+      if (synced) record = read() ?? record;
       record = won ? { ...record, wins: record.wins + 1 } : { ...record, losses: record.losses + 1 };
       try {
         storage?.setItem(RECORD_KEY, JSON.stringify(record));
+        synced = !!storage;
       } catch {
         // Storage may be full or blocked; the record still counts for this visit.
+        synced = false;
       }
       return record;
     },
