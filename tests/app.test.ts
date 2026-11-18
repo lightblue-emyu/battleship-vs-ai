@@ -207,6 +207,32 @@ describe('画面（UI）', () => {
     expect(q('[data-ref=status]').textContent).toContain('あなたの番です');
   });
 
+  it('AIの強さを選べて、開始後は変更できず、再スタート後も選んだ強さが残る', () => {
+    const level = (d: string) => q<HTMLButtonElement>(`[data-difficulty=${d}]`);
+    expect(level('normal').getAttribute('aria-pressed')).toBe('true');
+    expect(level('hard').textContent).toBe('強い');
+
+    level('hard').click();
+    expect(app.game.difficulty).toBe('hard');
+    expect(level('hard').getAttribute('aria-pressed')).toBe('true');
+    expect(level('normal').getAttribute('aria-pressed')).toBe('false');
+    expect(q('[data-ref=status]').textContent).toContain('「強い」');
+
+    startWithRandomFleet();
+    expect(level('easy').disabled).toBe(true);
+    level('easy').click();
+    expect(app.game.difficulty).toBe('hard');
+    expect(q('[data-ref=log]').textContent).toContain('AIの強さ：強い');
+    expect(q('[data-ref=ai-level]').textContent).toContain('強い');
+
+    q<HTMLButtonElement>('[data-ref=restart]').click();
+    expect(app.game.phase).toBe('placement');
+    expect(app.game.difficulty).toBe('hard');
+    expect(level('hard').getAttribute('aria-pressed')).toBe('true');
+    level('easy').click();
+    expect(app.game.difficulty).toBe('easy');
+  });
+
   it('船のマスにはドット絵が表示される', () => {
     startWithRandomFleet();
     const ship = app.game.playerBoard.ships[0];

@@ -2,9 +2,11 @@ import { Board, isSunk, sameCoord, shipCells, shipOrientation } from '../game/bo
 import { Game } from '../game/game';
 import {
   BOARD_SIZE,
+  DIFFICULTIES,
   FLEET,
   type AttackResult,
   type Coord,
+  type Difficulty,
   type Direction,
   type Orientation,
   type Random,
@@ -17,6 +19,8 @@ export interface AppOptions {
   random?: Random;
   /** Pause before the AI fires, so the player can follow what happened. */
   aiDelayMs?: number;
+  /** AI strength selected when the page opens. */
+  difficulty?: Difficulty;
   /** Hit / sunk sound effects; defaults to Web Audio synthesis. */
   sound?: SoundPlayer;
 }
@@ -26,6 +30,7 @@ type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
 const COLUMN_LABELS = 'ABCDEFGHIJ';
 
 const DIRECTION_LABELS: Record<Direction, string> = { up: '上', down: '下', left: '左', right: '右' };
+const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: '弱い', normal: '普通', hard: '強い' };
 const ARROW_KEYS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
 export function coordLabel({ row, col }: Coord): string {
@@ -38,7 +43,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const aiDelayMs = options.aiDelayMs ?? 700;
   const sound = options.sound ?? createSoundPlayer();
 
-  let game = new Game(random);
+  let difficulty: Difficulty = options.difficulty ?? 'normal';
+  let game = new Game(random, difficulty);
   let orientation: Orientation = 'horizontal';
   let hover: Coord | null = null;
   let lastShot: { side: 'player' | 'ai'; coord: Coord } | null = null;
@@ -58,6 +64,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     rotate: $<HTMLButtonElement>('[data-ref=rotate]'),
     random: $<HTMLButtonElement>('[data-ref=random]'),
     clear: $<HTMLButtonElement>('[data-ref=clear]'),
+    difficultyButtons: [...root.querySelectorAll<HTMLButtonElement>('[data-difficulty]')],
+    aiLevel: $('[data-ref=ai-level]'),
     movePanel: $('[data-ref=move-panel]'),
     moveInfo: $('[data-ref=move-info]'),
     moveButtons: [...root.querySelectorAll<HTMLButtonElement>('[data-dir]')],
@@ -80,7 +88,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function reset() {
     clearTimeout(aiTimer);
     aiTimer = undefined;
-    game = new Game(random);
+    game = new Game(random, difficulty);
     orientation = 'horizontal';
     hover = null;
     lastShot = null;
@@ -272,7 +280,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (game.phase !== 'placement' || game.nextShipToPlace()) return;
     game.start();
     hover = null;
-    addLog({ side: 'system', text: '戦闘開始！' });
+    addLog({ side: 'system', text: `戦闘開始！（AIの強さ：${DIFFICULTY_LABELS[difficulty]}）` });
     status = '戦闘開始！敵陣（右側）をクリックして攻撃。自分の船をクリックすると、攻撃の代わりに1マス動かせます。';
     render();
   });
@@ -280,6 +288,15 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     button.addEventListener('click', () => moveSelected(button.dataset.dir as Direction));
   }
   els.moveCancel.addEventListener('click', deselect);
+  for (const button of els.difficultyButtons) {
+    button.addEventListener('click', () => {
+      if (game.phase !== 'placement') return;
+      difficulty = button.dataset.difficulty as Difficulty;
+      game.setDifficulty(difficulty);
+      status = `AIの強さを「${DIFFICULTY_LABELS[difficulty]}」にしました。`;
+      render();
+    });
+  }
   els.restart.addEventListener('click', reset);
   els.playAgain.addEventListener('click', reset);
   els.viewBoards.addEventListener('click', () => {
@@ -323,6 +340,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.rotate.disabled = !placing || !next;
     els.start.disabled = !placing || next !== null;
     els.clear.disabled = !placing || game.playerBoard.ships.length === 0;
+    for (const button of els.difficultyButtons) {
+      button.setAttribute('aria-pressed', String(button.dataset.difficulty === difficulty));
+      button.disabled = !placing;
+    }
+    els.aiLevel.textContent = `AI・${DIFFICULTY_LABELS[difficulty]}`;
     if (selected && selected.hitCount > 0) selected = null;
     const myTurn = game.phase === 'playing' && game.turn === 'player';
     els.movePanel.hidden = game.phase !== 'playing';
@@ -541,6 +563,10 @@ const TEMPLATE = /* html */ `
 
   <section class="toolbar" aria-label="操作">
     <div class="placement" data-ref="placement">
+      <div class="difficulty" role="group" aria-label="AIの強さ">
+        <span>AIの強さ</span>
+        ${DIFFICULTIES.map((d) => `<button type="button" data-difficulty="${d}">${DIFFICULTY_LABELS[d]}</button>`).join('')}
+      </div>
       <strong data-ref="current-ship"></strong>
       <div class="buttons">
         <button type="button" data-ref="rotate">向きを変える (R)</button>
@@ -566,7 +592,7 @@ const TEMPLATE = /* html */ `
     <div class="zones">
       <h2 id="player-title">自陣 <small>あなた</small></h2>
       <span class="vs" aria-hidden="true">VS</span>
-      <h2 id="ai-title" class="enemy">敵陣 <small>AI</small></h2>
+      <h2 id="ai-title" class="enemy">敵陣 <small data-ref="ai-level">AI</small></h2>
     </div>
     <div class="grid-scroll">
       <div class="grid" data-ref="grid"></div>

@@ -52,3 +52,8 @@ export const FLEET: readonly ShipType[] = [
 
 /** Returns a number in [0, 1). Injected so tests can be deterministic. */
 export type Random = () => number;
+
+/** How strong the computer opponent is. */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];

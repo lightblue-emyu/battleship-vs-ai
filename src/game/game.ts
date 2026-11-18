@@ -1,9 +1,10 @@
-import { AiPlayer, chooseEvasion, type ShipMove } from './ai';
+import { AiPlayer, chooseEvasion, EVADE_CHANCES, type ShipMove } from './ai';
 import { Board, placeFleetRandomly } from './board';
 import {
   FLEET,
   type AttackResult,
   type Coord,
+  type Difficulty,
   type Direction,
   type Orientation,
   type Random,
@@ -30,9 +31,22 @@ export class Game {
   private ai: AiPlayer;
   private lastPlayerShot: AttackResult | null = null;
 
-  constructor(private readonly random: Random = Math.random) {
-    this.ai = new AiPlayer(random);
+  constructor(
+    private readonly random: Random = Math.random,
+    difficulty: Difficulty = 'normal',
+  ) {
+    this.ai = new AiPlayer(random, difficulty);
     placeFleetRandomly(this.aiBoard, random);
+  }
+
+  get difficulty(): Difficulty {
+    return this.ai.difficulty;
+  }
+
+  /** The AI's strength can only be changed before the battle starts. */
+  setDifficulty(difficulty: Difficulty): void {
+    if (this.phase !== 'placement') throw new Error('AIの強さはゲーム開始前にだけ変更できます');
+    this.ai = new AiPlayer(this.random, difficulty);
   }
 
   /** The next ship the player has to place, or null when all are placed. */
@@ -87,7 +101,7 @@ export class Game {
   /** The AI's whole turn: dodge with a threatened ship, or otherwise attack. */
   aiTakeTurn(): TurnAction {
     this.assertTurn('ai');
-    const evasion = chooseEvasion(this.aiBoard, this.lastPlayerShot, this.random);
+    const evasion = chooseEvasion(this.aiBoard, this.lastPlayerShot, this.random, EVADE_CHANCES[this.difficulty]);
     if (evasion) {
       this.aiBoard.moveShip(evasion.ship, evasion.direction);
       this.turn = 'player';
