@@ -67,8 +67,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const missiles = new Set<() => void>();
   /** True from launch until impact, so a winning shot does not reveal the result early. */
   let awaitingImpact = false;
-  /** Ship struck by the missile still in the air; its fleet-panel dot lights only on impact. */
-  let struckInFlight: Ship | null = null;
+  /** Hit marks of the ship struck by the missile still in the air, as they were before the shot. */
+  let struckInFlight: ShipMarks | null = null;
 
   root.innerHTML = TEMPLATE;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -258,7 +258,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (!playerDefending()) return;
     waiting = false;
     selected = null;
-    showOutcome(game.playerDefend(move));
+    resolve(() => game.playerDefend(move));
   }
 
   function onAiGridClick(coord: Coord) {
@@ -269,7 +269,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       return;
     }
     waiting = false;
-    showOutcome(game.playerAttack(coord));
+    resolve(() => game.playerAttack(coord));
   }
 
   /** Waits for the player: a target to fire at, or a defence choice. */
@@ -284,7 +284,15 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
-  function showOutcome(outcome: RoundOutcome) {
+  /** Resolves a round, remembering the struck ship's marks so the fleet panel changes only on impact. */
+  function resolve(round: () => RoundOutcome) {
+    const before = new Map([...game.playerBoard.ships, ...game.aiBoard.ships].map((s) => [s, { hits: [...s.hits], hitCount: s.hitCount }]));
+    const outcome = round();
+    const ship = outcome.attack?.ship;
+    showOutcome(outcome, ship ? { ship, ...before.get(ship)! } : null);
+  }
+
+  function showOutcome(outcome: RoundOutcome, struck: ShipMarks | null) {
     logMove(outcome);
     const attack = outcome.attack;
     if (!attack) {
@@ -293,7 +301,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     }
     lastShot = { side: outcome.attacker, coord: attack.coord };
     awaitingImpact = true;
-    struckInFlight = attack.ship ?? null;
+    struckInFlight = struck;
     status = `${outcome.attacker === 'player' ? '' : 'AIが'}${coordLabel(attack.coord)}へミサイル発射！`;
     render();
     fireMissile(outcome.attacker, attack.coord, () => {
@@ -667,13 +675,20 @@ function cellAria(owner: Owner, coord: Coord, shot: 'hit' | 'miss' | null, ship:
 }
 
 /** Lists every ship with its hit cells and a status badge; returns how many are still afloat. */
-function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlight: Ship | null): number {
+interface ShipMarks {
+  ship: Ship;
+  hits: boolean[];
+  hitCount: number;
+}
+
+function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlight: ShipMarks | null): number {
   let afloat = 0;
   list.replaceChildren(
     ...FLEET.map((type) => {
       const ship = board.ships.find((s) => s.type.id === type.id);
       // The hit already applied by the rules is shown only once its missile lands.
-      const hitCount = ship ? ship.hitCount - (ship === struckInFlight ? 1 : 0) : 0;
+      const marks = ship && struckInFlight?.ship === ship ? struckInFlight : ship;
+      const hitCount = marks?.hitCount ?? 0;
       const sunk = hitCount >= type.length;
       const damaged = !!ship && !sunk && hitCount > 0;
       const pending = own && !ship;
@@ -689,8 +704,8 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlig
       hull.style.setProperty('--sprite', shipIcon(type.id, 'player', sunk ? 'wreck' : own ? 'player' : 'enemy'));
       for (let i = 0; i < type.length; i++) {
         const part = document.createElement('s');
-        // One glowing dot per hit taken (repeat hits on a moved segment count too).
-        part.classList.toggle('hit', i < hitCount);
+        // A dot on each hit segment; a repeat hit on the same segment shows only in the 被弾 count.
+        part.classList.toggle('hit', !!marks?.hits[i]);
         hull.append(part);
       }
       const badge = document.createElement('i');
