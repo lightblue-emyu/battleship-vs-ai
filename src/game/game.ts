@@ -96,7 +96,7 @@ export class Game {
   /** While the player attacks: choose (or change, or clear) the cell to fire at when time is up. */
   planTarget(coord: Coord | null): void {
     this.assertTurn('player');
-    if (coord && this.aiBoard.hasBeenShot(coord)) throw new Error('そのマスは既に攻撃済みです');
+    if (coord && this.aiBoard.isSunkAt(coord)) throw new Error('沈んだ船のマスは攻撃できません');
     this.plannedTarget = coord;
   }
 

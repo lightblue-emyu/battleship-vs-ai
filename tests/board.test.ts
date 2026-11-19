@@ -71,13 +71,13 @@ describe('Board: 攻撃の判定', () => {
     expect(result.ship?.type.id).toBe('destroyer');
   });
 
-  it('同じマスへの2回目の攻撃は拒否され、命中数も増えない', () => {
+  it('同じマスへの2回目の攻撃も被弾として数え、長さと同じ回数で沈む', () => {
     const board = new Board();
     board.placeShip(destroyer, { row: 0, col: 0 }, 'horizontal');
     board.receiveAttack({ row: 0, col: 0 });
-    expect(() => board.receiveAttack({ row: 0, col: 0 })).toThrow('既に攻撃済み');
-    expect(board.ships[0].hitCount).toBe(1);
-    expect(board.allShipsSunk()).toBe(false);
+    expect(board.receiveAttack({ row: 0, col: 0 }).outcome).toBe('sunk');
+    expect(board.ships[0].hitCount).toBe(2);
+    expect(board.allShipsSunk()).toBe(true);
   });
 
   it('盤面外への攻撃は拒否される', () => {
@@ -149,8 +149,28 @@ describe('Board：船の移動', () => {
     board.receiveRepeatHit({ row: 4, col: 4 });
     expect(board.receiveAttack({ row: 4, col: 5 }).outcome).toBe('sunk');
     expect(board.hasBeenShot({ row: 4, col: 6 })).toBe(true);
-    expect(() => board.receiveAttack({ row: 4, col: 6 })).toThrow('既に攻撃済み');
+    expect(() => board.receiveAttack({ row: 4, col: 6 })).toThrow('沈んだ船');
     expect(cruiser.hitCount).toBe(3);
+  });
+
+  it('外れ・命中のマスにも何度でも攻撃でき、命中マスへの再攻撃も被弾として数える', () => {
+    const board = new Board();
+    const ship = board.placeShip(FLEET[2], { row: 4, col: 4 }, 'horizontal');
+    expect(board.receiveAttack({ row: 0, col: 0 }).outcome).toBe('miss');
+    expect(board.receiveAttack({ row: 0, col: 0 }).outcome).toBe('miss');
+    expect(board.receiveAttack({ row: 4, col: 4 }).outcome).toBe('hit');
+    expect(board.receiveAttack({ row: 4, col: 4 }).outcome).toBe('hit');
+    expect(ship.hitCount).toBe(2);
+  });
+
+  it('生き残っている船は、沈んだ船のいるマスには動けない', () => {
+    const board = new Board();
+    const sunk = board.placeShip(destroyer, { row: 1, col: 0 }, 'horizontal');
+    const ship = board.placeShip(carrier, { row: 0, col: 0 }, 'horizontal');
+    board.receiveAttack({ row: 1, col: 0 });
+    board.receiveAttack({ row: 1, col: 1 });
+    expect(sunk.hitCount).toBe(2);
+    expect(board.canMoveBy(ship, { row: 1, col: 0 })).toBe(false);
   });
 
   it('ほかの船と重なる場所・盤面の外には動けない', () => {

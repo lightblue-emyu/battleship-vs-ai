@@ -90,7 +90,8 @@ describe('Game', () => {
     game.planTarget({ row: 0, col: 0 });
     game.resolveRound();
     game.resolveRound();
-    expect(() => game.planTarget({ row: 0, col: 0 })).toThrow('既に攻撃済み');
+    game.planTarget({ row: 0, col: 0 });
+    expect(game.plannedTarget).toEqual({ row: 0, col: 0 });
     game.planTarget({ row: 1, col: 1 });
     game.planTarget({ row: 2, col: 2 });
     expect(game.plannedTarget).toEqual({ row: 2, col: 2 });

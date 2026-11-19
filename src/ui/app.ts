@@ -259,8 +259,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
   function onAiGridClick(coord: Coord) {
     if (!playerAttacking()) return;
-    if (game.aiBoard.hasBeenShot(coord)) {
-      status = `${coordLabel(coord)}は既に攻撃済みです。別のマスを選んでください。`;
+    if (game.aiBoard.isSunkAt(coord)) {
+      status = `${coordLabel(coord)}は沈んだ船のマスです。別のマスを選んでください。`;
       render();
       return;
     }
@@ -496,11 +496,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
         miss: shot === 'miss',
         sunk,
         last: lastShot?.side === 'player' && sameCoord(lastShot.coord, coord),
-        target: canAttack && shot === null,
+        target: canAttack && !sunk,
       });
       if (reveal && ship) setShipSprite(cell, ship, coord, 'enemy');
       else setSprite(cell, null);
-      cell.disabled = !canAttack || shot !== null;
+      cell.disabled = !canAttack || sunk;
       cell.setAttribute('aria-label', cellAria('ai', coord, shot, reveal, sunk));
     });
   }
