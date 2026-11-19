@@ -1,59 +1,52 @@
-import { type Board, isInBounds, sameCoord, shipCells } from './board';
+import { type Board, isInBounds, isSunk, sameCoord, shiftCells, shipCells } from './board';
 import {
   BOARD_SIZE,
-  DIRECTION_DELTA,
   FLEET,
   type AttackResult,
   type Coord,
   type Difficulty,
-  type Direction,
+  type Offset,
   type Orientation,
   type Random,
   type Ship,
 } from './types';
 
-/** How often the AI dodges instead of attacking when a shot lands next to one of its ships. */
+/** How often the AI moves a threatened ship while it is defending. */
 export const EVADE_CHANCE = 0.5;
 
-/** Evasion chance per difficulty: the weak AI never dodges, the strong one usually does. */
+/** Evasion chance per difficulty: the weak AI never moves, the strong one usually does. */
 export const EVADE_CHANCES: Readonly<Record<Difficulty, number>> = { easy: 0, normal: EVADE_CHANCE, hard: 0.8 };
 
 export interface ShipMove {
   ship: Ship;
-  direction: Direction;
+  offset: Offset;
 }
 
 /**
- * Decides whether the AI should spend its turn moving a ship out of danger.
- * It only reacts to the player's last shot: if it was a miss right next to an
- * undamaged AI ship, the AI sometimes moves that ship one cell away.
+ * Decides, at the start of a round in which the AI defends, whether to move a ship.
+ * Threatened ships are damaged ones (their hit marks give them away) and ships right
+ * next to the player's last shot. With probability `chance` the AI moves one of them
+ * to a legal spot as far as possible from where the player has been shooting.
  */
 export function chooseEvasion(
   board: Board,
-  lastIncoming: AttackResult | null,
+  lastIncoming: Coord | null,
   random: Random,
   chance = EVADE_CHANCE,
 ): ShipMove | null {
-  if (!lastIncoming || lastIncoming.outcome !== 'miss') return null;
-  const shot = lastIncoming.coord;
-  const options = board.ships
-    .filter((s) => s.hitCount === 0 && distanceTo(s.cells, shot) === 1)
-    .flatMap((ship) => board.legalMoves(ship).map((direction) => ({ ship, direction })));
-  const away = options.filter(
-    ({ ship, direction }) => distanceTo(moved(ship.cells, direction), shot) > distanceTo(ship.cells, shot),
+  const threatened = board.ships.filter(
+    (s) => !isSunk(s) && (s.hitCount > 0 || (lastIncoming !== null && distanceTo(s.cells, lastIncoming) <= 1)),
   );
-  const pool = away.length > 0 ? away : options;
-  if (pool.length === 0 || random() >= chance) return null;
+  const options = threatened.flatMap((ship) => board.legalOffsets(ship).map((offset) => ({ ship, offset })));
+  if (options.length === 0 || random() >= chance) return null;
+  const from = (m: ShipMove) => (lastIncoming ? distanceTo(shiftCells(m.ship.cells, m.offset), lastIncoming) : 0);
+  const best = Math.max(...options.map(from));
+  const pool = options.filter((m) => from(m) === best);
   return pool[Math.floor(random() * pool.length)];
 }
 
 function distanceTo(cells: Coord[], target: Coord): number {
   return Math.min(...cells.map((c) => Math.abs(c.row - target.row) + Math.abs(c.col - target.col)));
-}
-
-function moved(cells: Coord[], direction: Direction): Coord[] {
-  const d = DIRECTION_DELTA[direction];
-  return cells.map((c) => ({ row: c.row + d.row, col: c.col + d.col }));
 }
 
 const DIRECTIONS: readonly Coord[] = [
@@ -79,13 +72,15 @@ const ORIENTATIONS: readonly Orientation[] = ['horizontal', 'vertical'];
  *   fires at the cell covered by the most positions. After a hit it only counts
  *   positions that go through the open hits, so it finishes ships quickly.
  *
- * The AI only remembers its own shots, so it never fires at the same cell twice.
+ * Ships move during the battle, so before each shot the AI re-reads what it can see on
+ * the player's board (`observe`): misses, hit marks (which move with their ship) and sunk ships.
+ * It only fires at cells without a mark, so it never fires at a marked cell.
  */
 export class AiPlayer {
-  private readonly tried = new Set<string>();
-  private readonly misses = new Set<string>();
-  private readonly sunkCells = new Set<string>();
-  private readonly sunkShips = new Set<string>();
+  private tried = new Set<string>();
+  private misses = new Set<string>();
+  private sunkCells = new Set<string>();
+  private sunkShips = new Set<string>();
   private openHits: Coord[] = [];
 
   constructor(
@@ -97,6 +92,32 @@ export class AiPlayer {
     const pool = this.candidates();
     if (pool.length === 0) throw new Error('攻撃できるマスが残っていません');
     return pool[Math.floor(this.random() * pool.length)];
+  }
+
+  /** Rebuild what the AI knows from the marks visible on the opponent's board. */
+  observe(board: Board): void {
+    this.tried = new Set();
+    this.misses = new Set();
+    this.sunkCells = new Set();
+    this.sunkShips = new Set();
+    this.openHits = [];
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const c = { row, col };
+        const mark = board.shotAt(c);
+        if (!mark) continue;
+        this.tried.add(key(c));
+        if (mark === 'miss') {
+          this.misses.add(key(c));
+          continue;
+        }
+        const ship = board.shipAtCell(c)!;
+        if (isSunk(ship)) {
+          this.sunkCells.add(key(c));
+          this.sunkShips.add(ship.type.id);
+        } else this.openHits.push(c);
+      }
+    }
   }
 
   /** Tell the AI what happened so it can plan the next shot. */

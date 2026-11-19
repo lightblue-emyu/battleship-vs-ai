@@ -151,34 +151,84 @@ describe('AIの強さ（弱い・普通・強い）', () => {
     expect(EVADE_CHANCES.normal).toBeLessThan(EVADE_CHANCES.hard);
     const board = new Board();
     board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
-    const shot = board.receiveAttack({ row: 4, col: 5 });
-    expect(chooseEvasion(board, shot, () => 0, EVADE_CHANCES.easy)).toBeNull();
+    board.receiveAttack({ row: 4, col: 5 });
+    expect(chooseEvasion(board, { row: 4, col: 5 }, () => 0, EVADE_CHANCES.easy)).toBeNull();
   });
 });
 
 describe('chooseEvasion（AIの回避）', () => {
   const always = () => 0;
 
-  it('自分の船のすぐ隣に外れ弾が来たら、その船を弾から離れる方向へ動かす', () => {
+  it('自分の船のすぐ隣に弾が来たら、その船を弾からいちばん遠い場所へ動かす', () => {
     const board = new Board();
     const ship = board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
-    const shot = board.receiveAttack({ row: 4, col: 5 });
-    const move = chooseEvasion(board, shot, always);
-    expect(move).toEqual({ ship, direction: 'down' });
+    board.receiveAttack({ row: 4, col: 5 });
+    expect(chooseEvasion(board, { row: 4, col: 5 }, always)).toEqual({ ship, offset: { row: 1, col: 1 } });
   });
 
-  it('命中や、離れた場所への外れでは動かない', () => {
+  it('被弾した船は、直前の弾の位置に関係なく動かそうとする', () => {
+    const board = new Board();
+    const ship = board.placeShip(FLEET[2], { row: 5, col: 5 }, 'horizontal');
+    board.receiveAttack({ row: 5, col: 5 });
+    expect(chooseEvasion(board, null, always)?.ship).toBe(ship);
+  });
+
+  it('無傷で、弾が離れた場所なら動かない', () => {
     const board = new Board();
     board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
-    expect(chooseEvasion(board, board.receiveAttack({ row: 0, col: 0 }), always)).toBeNull();
-    expect(chooseEvasion(board, board.receiveAttack({ row: 5, col: 5 }), always)).toBeNull();
+    expect(chooseEvasion(board, { row: 0, col: 0 }, always)).toBeNull();
     expect(chooseEvasion(board, null, always)).toBeNull();
   });
 
-  it('確率に外れたら回避しない', () => {
+  it('確率に外れたら動かない', () => {
     const board = new Board();
     board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
-    const shot = board.receiveAttack({ row: 4, col: 5 });
-    expect(chooseEvasion(board, shot, () => 0.99)).toBeNull();
+    expect(chooseEvasion(board, { row: 4, col: 5 }, () => 0.99)).toBeNull();
+  });
+});
+
+describe('AiPlayer.observe（動く船への対応）', () => {
+  it('移動した船の命中マークを見て、その隣を狙う', () => {
+    const board = new Board();
+    const cruiser = board.placeShip(FLEET[2], { row: 4, col: 4 }, 'horizontal');
+    board.receiveAttack({ row: 4, col: 4 });
+    board.moveBy(cruiser, { row: 1, col: 1 });
+    const ai = new AiPlayer(seededRandom(1), 'normal');
+    ai.observe(board);
+    const target = ai.chooseTarget();
+    expect(Math.abs(target.row - 5) + Math.abs(target.col - 5)).toBe(1);
+    expect(board.hasBeenShot(target)).toBe(false);
+  });
+
+  it('船が止まって外れの印が消えたマスは、もう一度狙える', () => {
+    const board = new Board();
+    const destroyer = board.placeShip(FLEET[4], { row: 0, col: 0 }, 'horizontal');
+    board.receiveAttack({ row: 1, col: 1 });
+    const ai = new AiPlayer(seededRandom(1), 'easy');
+    ai.observe(board);
+    expect(ai.hasTried({ row: 1, col: 1 })).toBe(true);
+    board.moveBy(destroyer, { row: 1, col: 1 });
+    ai.observe(board);
+    expect(ai.hasTried({ row: 1, col: 1 })).toBe(false);
+  });
+
+  it('動く船を相手にしても、どの強さでも印のあるマスは狙わず、いつかは全艦を沈める', () => {
+    for (const difficulty of DIFFICULTIES) {
+      const random = seededRandom(5);
+      const board = new Board();
+      placeFleetRandomly(board, random);
+      const ai = new AiPlayer(random, difficulty);
+      let turns = 0;
+      while (!board.allShipsSunk() && turns < 400) {
+        ai.observe(board);
+        const target = ai.chooseTarget();
+        expect(board.hasBeenShot(target)).toBe(false);
+        board.receiveAttack(target);
+        const move = chooseEvasion(board, target, random, 1);
+        if (move) board.moveBy(move.ship, move.offset);
+        turns++;
+      }
+      expect(board.allShipsSunk()).toBe(true);
+    }
   });
 });

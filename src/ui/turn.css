@@ -1,0 +1,38 @@
+/* Thinking-time bar and the planning marks used during a round. */
+.thinking[hidden] { display: none; }
+.thinking {
+  --left: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -6px 0 14px;
+  padding: 8px 14px 12px;
+  border: 1px solid rgb(62 224 255 / 0.35);
+  border-radius: 10px;
+  background: rgb(10 22 44 / 0.85);
+  overflow: hidden;
+}
+.thinking[data-role='defense'] { border-color: rgb(255 90 95 / 0.45); }
+.thinking-title { font-size: 0.75rem; letter-spacing: 0.12em; color: var(--muted, #8aa0c0); }
+.thinking b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--accent, #3ee0ff); }
+.thinking[data-role='defense'] b { color: var(--hit, #ff5a5f); }
+.thinking-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 4px;
+  width: calc(var(--left) * 100%);
+  background: var(--accent, #3ee0ff);
+  transition: width 0.25s linear;
+}
+.thinking[data-role='defense'] .thinking-bar { background: var(--hit, #ff5a5f); }
+
+.cell.planned { box-shadow: inset 0 0 0 2px var(--accent, #3ee0ff), 0 0 12px var(--accent, #3ee0ff); z-index: 2; }
+.cell.reach { box-shadow: inset 0 0 0 1px rgb(62 224 255 / 0.55); background-color: rgb(62 224 255 / 0.12); cursor: pointer; }
+.cell.ghost { opacity: 0.75; box-shadow: inset 0 0 0 2px rgb(62 224 160 / 0.9); z-index: 1; }
+.cell.plan-from:not(.ghost) { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-bar { transition: none; }
+}
