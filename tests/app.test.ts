@@ -240,8 +240,12 @@ describe('画面（UI）', () => {
     const expected = new Set(offsets.flatMap(newCells).map((c) => `${c.row},${c.col}`));
     expect(root.querySelectorAll('[data-owner=player].reach')).toHaveLength(expected.size);
 
-    const [offset] = offsets;
     const before = ship.cells.map((c) => ({ ...c }));
+    for (const c of before) cell('player', c.row, c.col).click();
+    expect(ship.cells).toEqual(before);
+    expect(app.game.turn).toBe('ai');
+
+    const [offset] = offsets;
     const [dest] = newCells(offset);
     cell('player', dest.row, dest.col).click();
     expect(ship.cells).toEqual(before.map((c) => ({ row: c.row + offset.row, col: c.col + offset.col })));

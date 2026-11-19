@@ -220,6 +220,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       return;
     }
     if (!selected) return;
+    if (selected.cells.some((c) => sameCoord(c, coord))) return;
     const offset = game.playerBoard
       .legalOffsets(selected)
       .find((o) => shiftCells(selected!.cells, o).some((c) => sameCoord(c, coord)));
