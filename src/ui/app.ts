@@ -1,5 +1,5 @@
-import { Board, isSunk, sameCoord, shipCells, shipOrientation } from '../game/board';
-import { Game } from '../game/game';
+import { Board, isSunk, moveRange, sameCoord, shiftCells, shipCells, shipOrientation } from '../game/board';
+import { Game, THINK_MS, type RoundOutcome } from '../game/game';
 import {
   BOARD_SIZE,
   DIFFICULTIES,
@@ -8,6 +8,7 @@ import {
   type Coord,
   type Difficulty,
   type Direction,
+  type Offset,
   type Orientation,
   type Random,
   type Ship,
@@ -16,11 +17,12 @@ import { launchMissile, MISSILE_FLIGHT_MS, prefersReducedMotion, type Shooter } 
 import { createRecordStore, winRate, type GameRecord, type RecordStore } from './record';
 import { createSoundPlayer, soundForOutcome, type SoundPlayer } from './sound';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
+import './turn.css';
 
 export interface AppOptions {
   random?: Random;
-  /** Pause before the AI fires, so the player can follow what happened. */
-  aiDelayMs?: number;
+  /** Thinking time at the start of every round (attacker picks a cell, defender may move a ship). */
+  thinkMs?: number;
   /** How long an attack missile flies before it lands (0 = no missile). */
   missileMs?: number;
   /** AI strength selected when the page opens. */
@@ -35,7 +37,7 @@ type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
 
 const COLUMN_LABELS = 'ABCDEFGHIJ';
 
-const DIRECTION_LABELS: Record<Direction, string> = { up: '上', down: '下', left: '左', right: '右' };
+const DIRECTION_DELTA: Record<Direction, Offset> = { up: { row: -1, col: 0 }, down: { row: 1, col: 0 }, left: { row: 0, col: -1 }, right: { row: 0, col: 1 } };
 const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: '弱い', normal: '普通', hard: '強い' };
 const ARROW_KEYS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
@@ -46,7 +48,7 @@ export function coordLabel({ row, col }: Coord): string {
 /** Builds the game screen inside `root` and wires up all interactions. */
 export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const random = options.random ?? Math.random;
-  const aiDelayMs = options.aiDelayMs ?? 700;
+  const thinkMs = options.thinkMs ?? THINK_MS;
   const missileMs = options.missileMs ?? MISSILE_FLIGHT_MS;
   const sound = options.sound ?? createSoundPlayer();
   const records = options.record ?? createRecordStore();
@@ -63,7 +65,9 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let recorded = false;
   let selected: Ship | null = null;
   let lastMoved: Ship | null = null;
-  let aiTimer: ReturnType<typeof setTimeout> | undefined;
+  let roundTimer: ReturnType<typeof setTimeout> | undefined;
+  let tickTimer: ReturnType<typeof setInterval> | undefined;
+  let roundEndsAt = 0;
   const missiles = new Set<() => void>();
   /** True from launch until impact, so a winning shot does not reveal the result early. */
   let awaitingImpact = false;
@@ -72,6 +76,9 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   const els = {
     status: $('[data-ref=status]'),
+    thinking: $('[data-ref=thinking]'),
+    thinkingRole: $('[data-ref=thinking-role]'),
+    thinkingLeft: $('[data-ref=thinking-left]'),
     placement: $('[data-ref=placement]'),
     currentShip: $('[data-ref=current-ship]'),
     rotate: $<HTMLButtonElement>('[data-ref=rotate]'),
@@ -104,9 +111,15 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   };
   buildGrid(els.grid);
 
+  function stopRoundTimers() {
+    clearTimeout(roundTimer);
+    clearInterval(tickTimer);
+    roundTimer = undefined;
+    tickTimer = undefined;
+  }
+
   function reset() {
-    clearTimeout(aiTimer);
-    aiTimer = undefined;
+    stopRoundTimers();
     cancelMissiles();
     game = new Game(random, difficulty);
     orientation = 'horizontal';
@@ -160,6 +173,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function describe(result: AttackResult, attacker: 'player' | 'ai'): string {
     const where = coordLabel(result.coord);
     const whose = attacker === 'player' ? '敵の' : 'あなたの';
+    if (result.wasted) return `${where}：被弾済みの部分に当たり、効果なし`;
     if (result.outcome === 'miss') return `${where}：外れ`;
     if (result.outcome === 'hit') return `${where}：命中！`;
     return `${where}：命中！ ${whose}${result.ship!.type.name}を撃沈！`;
@@ -172,7 +186,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
   function onPlayerGridClick(coord: Coord) {
     if (game.phase === 'playing') {
-      selectShipAt(coord);
+      onDefenseClick(coord);
       return;
     }
     if (game.phase !== 'placement') return;
@@ -191,101 +205,166 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   }
 
+  /** True while the player defends this round and may still plan a ship move. */
+  function playerDefending() {
+    return game.phase === 'playing' && game.turn === 'ai' && roundTimer !== undefined && !awaitingImpact;
+  }
+
+  /** True while the player attacks this round and may still pick a target. */
+  function playerAttacking() {
+    return playerCanAct() && roundTimer !== undefined;
+  }
+
+  function defenseHint() {
+    return 'AIの攻撃ターン：動かすなら自分の船をクリックし、移動先のマスをクリック（または矢印キー）。';
+  }
+
   function deselect() {
+    if (playerDefending() && game.plannedMove) game.planMove(null);
     selected = null;
-    status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
+    if (playerDefending()) status = defenseHint();
     render();
   }
 
-  function selectShipAt(coord: Coord) {
-    if (!playerCanAct()) return;
+  /** Which cell of a ship counts as its centre (for even lengths, the one nearer the bow). */
+  function centreCell(ship: Ship): Coord {
+    return ship.cells[Math.floor((ship.cells.length - 1) / 2)];
+  }
+
+  function rangeLabel(ship: Ship) {
+    const n = ship.type.length - ship.hitCount;
+    return `${n}×${n}`;
+  }
+
+  function onDefenseClick(coord: Coord) {
+    if (!playerDefending()) return;
     const ship = game.playerBoard.shipAtCell(coord);
-    if (!ship || ship === selected) {
-      selected = null;
-      status = 'あなたの番です。敵陣（右側）をクリックして攻撃するか、自分の船を選んで1マス動かしましょう。';
-    } else if (ship.hitCount > 0) {
-      selected = null;
-      status = `${ship.type.name}は被弾しているので動かせません。`;
-    } else if (game.playerBoard.legalMoves(ship).length === 0) {
-      selected = null;
+    if (ship && ship !== selected) {
+      selectShip(ship);
+      return;
+    }
+    if (!selected) return;
+    const centre = centreCell(selected);
+    planOffset(selected, { row: coord.row - centre.row, col: coord.col - centre.col });
+  }
+
+  function selectShip(ship: Ship) {
+    if (isSunk(ship) || !moveRange(ship)) {
+      status = `${ship.type.name}は被弾が多く、もう動かせません。`;
+    } else if (game.playerBoard.legalOffsets(ship).length === 0) {
       status = `${ship.type.name}は周りがふさがっていて動かせません。`;
     } else {
       selected = ship;
-      status = `${ship.type.name}を選択中。矢印ボタンか矢印キーで1マス動かせます（攻撃の代わりになります）。`;
+      status = `${ship.type.name}を選択中（${rangeLabel(ship)}の範囲で移動可）。光っているマスをクリックすると、船の中心がそこへ動きます。`;
     }
     render();
   }
 
-  function moveSelected(direction: Direction) {
-    if (!playerCanAct() || !selected) return;
-    const ship = selected;
-    if (!game.playerBoard.canMoveShip(ship, direction)) {
-      status = `${ship.type.name}は${DIRECTION_LABELS[direction]}には動かせません。`;
-      render();
-      return;
+  function plannedOffset(ship: Ship): Offset {
+    const plan = game.plannedMove;
+    return plan && plan.ship === ship ? plan.offset : { row: 0, col: 0 };
+  }
+
+  function planOffset(ship: Ship, offset: Offset) {
+    if (offset.row === 0 && offset.col === 0) {
+      game.planMove(null);
+      status = `${ship.type.name}は元の位置のままです。`;
+    } else if (game.playerBoard.canMoveBy(ship, offset)) {
+      game.planMove({ ship, offset });
+      status = `${ship.type.name}の移動先を決めました。時間切れで移動します（変更もできます）。`;
+    } else {
+      status = `${ship.type.name}はそこへは動かせません（${rangeLabel(ship)}の範囲で、ほかの船と重ならない場所だけ）。`;
     }
-    game.playerMove(ship, direction);
-    selected = null;
-    lastMoved = ship;
-    const text = `${ship.type.name}を${DIRECTION_LABELS[direction]}へ1マス移動`;
-    addLog({ side: 'player', text: `あなた → ${text}` });
-    status = `${text}しました ／ AIが狙いを定めています…`;
-    aiTimer = setTimeout(runAiTurn, aiDelayMs);
     render();
+  }
+
+  /** Arrow keys / buttons nudge the planned position, skipping spots blocked by other ships. */
+  function moveSelected(direction: Direction) {
+    if (!playerDefending() || !selected) return;
+    const ship = selected;
+    const range = moveRange(ship);
+    if (!range) return;
+    const d = DIRECTION_DELTA[direction];
+    let next = plannedOffset(ship);
+    for (;;) {
+      next = { row: next.row + d.row, col: next.col + d.col };
+      const inRange = [next.row, next.col].every((v) => v >= range.min && v <= range.max);
+      if (!inRange) {
+        status = `${ship.type.name}はこれ以上その方向へは動かせません（${rangeLabel(ship)}の範囲）。`;
+        render();
+        return;
+      }
+      if ((next.row === 0 && next.col === 0) || game.playerBoard.canMoveBy(ship, next)) break;
+    }
+    planOffset(ship, next);
   }
 
   function onAiGridClick(coord: Coord) {
-    if (!playerCanAct()) return;
+    if (!playerAttacking()) return;
     if (game.aiBoard.hasBeenShot(coord)) {
       status = `${coordLabel(coord)}は既に攻撃済みです。別のマスを選んでください。`;
       render();
       return;
     }
-    const result = game.playerAttack(coord);
-    selected = null;
-    lastMoved = null;
-    lastShot = { side: 'player', coord };
-    awaitingImpact = true;
-    status = `${coordLabel(coord)}へミサイル発射！`;
+    const same = game.plannedTarget && sameCoord(game.plannedTarget, coord);
+    game.planTarget(same ? null : coord);
+    status = same
+      ? '狙いを取り消しました。時間切れまでに選ばないと、このターンは攻撃なしです。'
+      : `${coordLabel(coord)}に狙いを定めました。時間切れで発射します（別のマスを選べば変更できます）。`;
     render();
-    fireMissile('player', coord, () => {
-      playAttackSound(result);
-      const text = describe(result, 'player');
-      addLog({ side: 'player', text: `あなた → ${text}` });
-      status = `あなたの攻撃 ${text}`;
+  }
+
+  /** Starts a round's thinking time; when it runs out, the round resolves. */
+  function startRound() {
+    stopRoundTimers();
+    if (game.phase !== 'playing') return;
+    selected = null;
+    roundEndsAt = Date.now() + thinkMs;
+    roundTimer = setTimeout(endRound, thinkMs);
+    tickTimer = setInterval(renderThinking, 250);
+    status =
+      game.turn === 'player'
+        ? 'あなたの攻撃ターン：敵陣（右側）の狙うマスをクリック。AIは船を動かすか考えています。'
+        : defenseHint();
+    render();
+  }
+
+  function endRound() {
+    stopRoundTimers();
+    if (game.phase !== 'playing') return;
+    const outcome = game.resolveRound();
+    selected = null;
+    logMove(outcome);
+    const attack = outcome.attack;
+    if (!attack) {
+      addLog({ side: outcome.attacker, text: `${outcome.attacker === 'player' ? 'あなた' : 'AI'} → 狙いを決めなかったので攻撃なし` });
+      startRound();
+      return;
+    }
+    lastShot = { side: outcome.attacker, coord: attack.coord };
+    awaitingImpact = true;
+    status = `${outcome.attacker === 'player' ? '' : 'AIが'}${coordLabel(attack.coord)}へミサイル発射！`;
+    render();
+    fireMissile(outcome.attacker, attack.coord, () => {
+      playAttackSound(attack);
+      const text = describe(attack, outcome.attacker);
+      addLog({ side: outcome.attacker, text: `${outcome.attacker === 'player' ? 'あなた' : 'AI'} → ${text}` });
       if (game.phase === 'playing') {
-        status += ' ／ AIが狙いを定めています…';
-        aiTimer = setTimeout(runAiTurn, aiDelayMs);
+        startRound();
+        status = `${outcome.attacker === 'player' ? 'あなた' : 'AI'}の攻撃 ${text} ／ ${status}`;
       }
       render();
     });
   }
 
-  function runAiTurn() {
-    aiTimer = undefined;
-    if (game.phase !== 'playing' || game.turn !== 'ai') return;
-    const action = game.aiTakeTurn();
-    if (action.kind === 'move') {
-      addLog({ side: 'ai', text: 'AI → 攻撃せずに船を1隻動かした（どの船かは秘密）' });
-      status = 'AIは攻撃せずに船を1隻動かしました！ ／ あなたの番です。';
+  function logMove({ attacker, move }: RoundOutcome) {
+    lastMoved = attacker === 'ai' && move ? move.ship : null;
+    if (!move) return;
+    if (attacker === 'player') {
+      addLog({ side: 'ai', text: 'AI → 船を1隻動かした（どの船かは秘密）' });
     } else {
-      const result = action.result;
-      lastShot = { side: 'ai', coord: result.coord };
-      if (result.ship === lastMoved) lastMoved = null;
-      awaitingImpact = true;
-      status = `AIが${coordLabel(result.coord)}へミサイル発射！`;
-      render();
-      fireMissile('ai', result.coord, () => {
-        playAttackSound(result);
-        const text = describe(result, 'ai');
-        addLog({ side: 'ai', text: `AI → ${text}` });
-        status = `AIの攻撃 ${text}`;
-        if (game.phase === 'playing') status += ' ／ あなたの番です。攻撃するか、船を1マス動かしましょう。';
-        render();
-      });
-      return;
+      addLog({ side: 'player', text: `あなた → ${move.ship.type.name}を${offsetLabel(move.offset)}へ移動` });
     }
-    render();
   }
 
   root.addEventListener('click', () => sound.unlock());
@@ -324,7 +403,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       e.preventDefault();
       moveSelected(direction);
     }
-    if (e.key === 'Escape' && selected) deselect();
+    if (e.key === 'Escape' && (selected || game.plannedMove)) deselect();
   };
   document.addEventListener('keydown', onKeydown);
 
@@ -346,8 +425,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     game.start();
     hover = null;
     addLog({ side: 'system', text: `戦闘開始！（AIの強さ：${DIFFICULTY_LABELS[difficulty]}）` });
-    status = '戦闘開始！敵陣（右側）をクリックして攻撃。自分の船をクリックすると、攻撃の代わりに1マス動かせます。';
-    render();
+    startRound();
   });
   for (const button of els.moveButtons) {
     button.addEventListener('click', () => moveSelected(button.dataset.dir as Direction));
@@ -378,8 +456,20 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   });
   renderSoundToggle();
 
+  function renderThinking() {
+    const active = roundTimer !== undefined && game.phase === 'playing';
+    els.thinking.hidden = !active;
+    if (!active) return;
+    const leftMs = Math.max(0, roundEndsAt - Date.now());
+    els.thinking.dataset.role = game.turn === 'player' ? 'attack' : 'defense';
+    els.thinkingRole.textContent = game.turn === 'player' ? 'あなたの攻撃：狙うマスを決める' : 'あなたの守り：動かす船を決める';
+    els.thinkingLeft.textContent = `残り ${Math.ceil(leftMs / 1000)} 秒`;
+    els.thinking.style.setProperty('--left', String(thinkMs > 0 ? leftMs / thinkMs : 0));
+  }
+
   function render() {
     els.status.textContent = status;
+    renderThinking();
     renderControls();
     renderBoards();
     els.playerCount.textContent = String(renderFleet(els.playerFleet, game.playerBoard, true));
@@ -411,29 +501,33 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       button.disabled = !placing;
     }
     els.aiLevel.textContent = `AI・${DIFFICULTY_LABELS[difficulty]}`;
-    if (selected && selected.hitCount > 0) selected = null;
-    const myTurn = playerCanAct();
+    const defending = playerDefending();
+    if (!defending || (selected && !moveRange(selected))) selected = null;
     els.movePanel.hidden = game.phase !== 'playing';
-    els.moveInfo.textContent = selected
-      ? `移動：${selected.type.name}`
-      : '移動：自分の船をクリックして選択';
-    for (const button of els.moveButtons) {
-      button.disabled = !myTurn || !selected || !game.playerBoard.canMoveShip(selected, button.dataset.dir as Direction);
-    }
-    els.moveCancel.disabled = !selected;
+    els.moveInfo.textContent = !defending
+      ? '移動：AIの攻撃ターンに、守りとして1隻動かせます'
+      : selected
+        ? `移動：${selected.type.name}（${rangeLabel(selected)}の範囲）`
+        : '移動：自分の船をクリックして選択';
+    for (const button of els.moveButtons) button.disabled = !defending || !selected;
+    els.moveCancel.disabled = !defending || (!selected && !game.plannedMove);
     root.dataset.phase = game.phase;
     root.dataset.turn = game.turn;
   }
 
   function renderBoards() {
     const preview = previewCells();
-    const myTurn = playerCanAct();
+    const defending = playerDefending();
+    const plan = defending ? game.plannedMove : null;
+    const ghost = plan ? shiftCells(plan.ship.cells, plan.offset) : [];
+    const reach = defending && selected ? reachableCentres(selected) : [];
     forEachCell(els.grid, 'player', (cell, coord) => {
       const board = game.playerBoard;
       const ship = board.shipAtCell(coord);
       const shot = board.shotAt(coord);
       const previewIndex = preview ? preview.cells.findIndex((c) => sameCoord(c, coord)) : -1;
       const inPreview = previewIndex >= 0;
+      const ghostIndex = ghost.findIndex((c) => sameCoord(c, coord));
       setCellState(cell, {
         ship: ship !== null,
         hit: shot === 'hit',
@@ -442,18 +536,23 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
         last: lastShot?.side === 'ai' && sameCoord(lastShot.coord, coord),
         'preview-ok': inPreview && preview!.valid,
         'preview-ng': inPreview && !preview!.valid,
-        movable: myTurn && ship !== null && ship.hitCount === 0,
+        movable: defending && ship !== null && moveRange(ship) !== null,
         selected: ship !== null && ship === selected,
         moved: ship !== null && ship === lastMoved,
+        ghost: ghostIndex >= 0,
+        'plan-from': plan !== null && ship === plan.ship,
+        reach: reach.some((c) => sameCoord(c, coord)),
       });
-      if (ship) setShipSprite(cell, ship, coord, 'player');
+      if (ghostIndex >= 0) setSprite(cell, shipSegment(plan!.ship.type.id, shipOrientation(plan!.ship), ghostIndex, 'player'), plan!.ship.type.id);
+      else if (ship) setShipSprite(cell, ship, coord, 'player');
       else if (inPreview) setSprite(cell, shipSegment(preview!.type.id, orientation, previewIndex, 'player'), preview!.type.id);
       else setSprite(cell, null);
-      cell.disabled = !(game.phase === 'placement' || (myTurn && ship !== null));
+      cell.disabled = !(game.phase === 'placement' || defending);
       cell.setAttribute('aria-label', cellAria('player', coord, shot, ship !== null, ship ? isSunk(ship) : false));
     });
 
-    const canAttack = playerCanAct();
+    const canAttack = playerAttacking();
+    const planned = canAttack ? game.plannedTarget : null;
     forEachCell(els.grid, 'ai', (cell, coord) => {
       const board = game.aiBoard;
       const ship = board.shipAtCell(coord);
@@ -467,12 +566,19 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
         sunk,
         last: lastShot?.side === 'player' && sameCoord(lastShot.coord, coord),
         target: canAttack && shot === null,
+        planned: planned !== null && sameCoord(planned, coord),
       });
       if (reveal && ship) setShipSprite(cell, ship, coord, 'enemy');
       else setSprite(cell, null);
       cell.disabled = !canAttack || shot !== null;
       cell.setAttribute('aria-label', cellAria('ai', coord, shot, reveal, sunk));
     });
+  }
+
+  /** Cells the selected ship's centre can move to this round (its legal positions). */
+  function reachableCentres(ship: Ship): Coord[] {
+    const centre = centreCell(ship);
+    return game.playerBoard.legalOffsets(ship).map((o) => ({ row: centre.row + o.row, col: centre.col + o.col }));
   }
 
   function previewCells() {
@@ -500,7 +606,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.resultText.textContent = playerWon
       ? 'あなたの勝利！ 敵艦隊をすべて撃沈しました。'
       : 'AIの勝利… あなたの艦隊はすべて沈められました。';
-    const shots = countShots(game.aiBoard);
+    const shots = game.shots.player;
     const afloat = game.playerBoard.ships.filter((ship) => !isSunk(ship)).length;
     renderStats(els.resultStats, [
       [String(shots.total), '攻撃回数'],
@@ -526,7 +632,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       return game;
     },
     destroy() {
-      clearTimeout(aiTimer);
+      stopRoundTimers();
       cancelMissiles();
       document.removeEventListener('keydown', onKeydown);
       root.innerHTML = '';
@@ -628,7 +734,10 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
       li.className = sunk ? 'sunk' : pending ? 'pending' : damaged ? 'damaged' : 'intact';
       const name = document.createElement('em');
       name.textContent = type.name;
-      if (own && damaged) name.append(Object.assign(document.createElement('small'), { textContent: '移動不可' }));
+      if (own && ship && !sunk) {
+        const range = moveRange(ship);
+        name.append(Object.assign(document.createElement('small'), { textContent: range ? `移動${ship.type.length - ship.hitCount}×${ship.type.length - ship.hitCount}` : '移動不可' }));
+      }
       const hull = document.createElement('span');
       hull.className = 'hull';
       hull.style.setProperty('--len', String(type.length));
@@ -647,19 +756,6 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
     }),
   );
   return afloat;
-}
-
-function countShots(board: Board) {
-  let total = 0;
-  let hits = 0;
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      const shot = board.shotAt({ row, col });
-      if (shot) total++;
-      if (shot === 'hit') hits++;
-    }
-  }
-  return { total, hits };
 }
 
 function renderStats(container: HTMLElement, stats: [value: string, label: string][]) {
@@ -688,7 +784,7 @@ const TEMPLATE = /* html */ `
   <header class="site-header">
     <div class="brand">
       <h1>BATTLESHIP <span>VS AI</span></h1>
-      <p>海に隠れた敵艦隊をすべて撃沈したら勝ち。自分の番に「1マス攻撃」か「無傷の船を1マス移動」を選べます。</p>
+      <p>敵艦隊をすべて撃沈したら勝ち。攻守は1ターンごとに交代し、5秒のシンキングタイムに攻撃側は狙うマスを、守り側は動かす船を決めます。</p>
     </div>
     <div class="header-side">
       <p class="record" data-ref="record" aria-label="通算成績"></p>
@@ -697,6 +793,12 @@ const TEMPLATE = /* html */ `
   </header>
 
   <p class="status" data-ref="status" role="status" aria-live="polite"></p>
+  <div class="thinking" data-ref="thinking" hidden>
+    <span class="thinking-title">シンキングタイム</span>
+    <strong data-ref="thinking-role"></strong>
+    <b data-ref="thinking-left"></b>
+    <i class="thinking-bar" aria-hidden="true"></i>
+  </div>
 
   <section class="toolbar" aria-label="操作">
     <div class="placement" data-ref="placement">
@@ -773,3 +875,10 @@ const TEMPLATE = /* html */ `
     </div>
   </div>
 `;
+
+function offsetLabel({ row, col }: Offset): string {
+  const parts: string[] = [];
+  if (row) parts.push(`${row < 0 ? '上' : '下'}${Math.abs(row)}`);
+  if (col) parts.push(`${col < 0 ? '左' : '右'}${Math.abs(col)}`);
+  return parts.join('・') || 'その場';
+}

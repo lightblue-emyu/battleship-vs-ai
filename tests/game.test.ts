@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { shiftCells } from '../src/game/board';
 import { Game } from '../src/game/game';
-import { BOARD_SIZE } from '../src/game/types';
+import { BOARD_SIZE, type Difficulty } from '../src/game/types';
 import { seededRandom } from './helpers';
 
-function startedGame(seed = 7) {
-  const game = new Game(seededRandom(seed));
+function startedGame(seed = 7, difficulty: Difficulty = 'normal') {
+  const game = new Game(seededRandom(seed), difficulty);
   game.placeRemainingRandomly();
   game.start();
   return game;
@@ -42,48 +43,103 @@ describe('Game', () => {
     expect(game.nextShipToPlace()?.id).toBe('carrier');
   });
 
-  it('プレイヤーとAIが交互に攻撃する', () => {
+  it('攻守は1ターンごとに交代し、攻撃側だけが狙いを、守り側だけが移動を決められる', () => {
     const game = startedGame();
     expect(game.turn).toBe('player');
-    game.playerAttack({ row: 0, col: 0 });
+    const ship = game.playerBoard.ships[0];
+    expect(() => game.planMove({ ship, offset: { row: 0, col: 1 } })).toThrow('プレイヤーの番');
+    game.planTarget({ row: 0, col: 0 });
+    const round = game.resolveRound();
+    expect(round.attacker).toBe('player');
+    expect(round.attack?.coord).toEqual({ row: 0, col: 0 });
     expect(game.turn).toBe('ai');
-    expect(() => game.playerAttack({ row: 0, col: 1 })).toThrow('AIの番');
-    game.aiAttack();
+    expect(() => game.planTarget({ row: 0, col: 1 })).toThrow('AIの番');
+    const aiRound = game.resolveRound();
+    expect(aiRound.attacker).toBe('ai');
+    expect(aiRound.attack).not.toBeNull();
     expect(game.turn).toBe('player');
-    expect(() => game.aiAttack()).toThrow('プレイヤーの番');
+  });
+
+  it('攻撃側が狙いを決めなければ、そのターンは攻撃なし', () => {
+    const game = startedGame();
+    const round = game.resolveRound();
+    expect(round.attack).toBeNull();
+    expect(countShots(game.aiBoard)).toBe(0);
+    expect(game.turn).toBe('ai');
+  });
+
+  it('攻撃済みのマスは狙えない。狙いは時間切れまで変更・取り消しできる', () => {
+    const game = startedGame();
+    game.planTarget({ row: 0, col: 0 });
+    game.resolveRound();
+    game.resolveRound();
+    expect(() => game.planTarget({ row: 0, col: 0 })).toThrow('既に攻撃済み');
+    game.planTarget({ row: 1, col: 1 });
+    game.planTarget({ row: 2, col: 2 });
+    expect(game.plannedTarget).toEqual({ row: 2, col: 2 });
+    game.planTarget(null);
+    expect(game.resolveRound().attack).toBeNull();
   });
 
   it('プレイヤーが敵の全艦を沈めると勝利で終了する', () => {
-    const game = startedGame();
-    const targets = game.aiBoard.ships.flatMap((s) => s.cells);
-    targets.forEach((coord, i) => {
-      game.playerAttack(coord);
-      if (i < targets.length - 1) game.aiAttack();
-    });
+    const game = startedGame(7, 'easy');
+    const targets = game.aiBoard.ships.flatMap((s) => s.cells.map((c) => ({ ...c })));
+    for (const coord of targets) {
+      game.planTarget(coord);
+      game.resolveRound();
+      if (game.phase === 'playing') game.resolveRound();
+    }
     expect(game.phase).toBe('over');
     expect(game.winner).toBe('player');
-    expect(() => game.aiAttack()).toThrow('ゲーム中ではありません');
+    expect(() => game.resolveRound()).toThrow('ゲーム中ではありません');
   });
 
   it('AIがプレイヤーの全艦を沈めるとAIの勝利で終了する', () => {
     const game = startedGame(11);
-    while (game.phase === 'playing') {
-      game.playerAttack(firstUnshot(game));
-      if (game.phase === 'playing') game.aiAttack();
-    }
+    for (let i = 0; i < 1000 && game.phase === 'playing'; i++) game.resolveRound();
     expect(game.phase).toBe('over');
-    expect(game.winner === 'ai' ? game.playerBoard.allShipsSunk() : game.aiBoard.allShipsSunk()).toBe(true);
+    expect(game.winner).toBe('ai');
+    expect(game.playerBoard.allShipsSunk()).toBe(true);
   });
 
   it('攻撃の結果（外れ・命中・撃沈）が返される', () => {
-    const game = startedGame();
+    const game = startedGame(7, 'easy');
     const ship = game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
     const results = ship.cells.map((c) => {
-      const r = game.playerAttack(c);
-      game.aiAttack();
+      game.planTarget(c);
+      const r = game.resolveRound().attack!;
+      game.resolveRound();
       return r.outcome;
     });
     expect(results).toEqual(['hit', 'sunk']);
+  });
+
+  it('攻撃回数と命中数は、船が外れの印を消しても正しく数える', () => {
+    const game = startedGame(7, 'easy');
+    const ship = game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
+    const [offset] = game.aiBoard.legalOffsets(ship);
+    const emptyUnder = shiftCells(ship.cells, offset).find((c) => !ship.cells.some((d) => d.row === c.row && d.col === c.col))!;
+    game.planTarget(emptyUnder);
+    game.resolveRound();
+    game.resolveRound();
+    game.aiBoard.moveBy(ship, offset);
+    expect(game.aiBoard.hasBeenShot(emptyUnder)).toBe(false);
+    expect(game.shots.player).toEqual({ total: 1, hits: 0 });
+  });
+
+  it('狙ったマスに被弾済みの船の部分が移動してきたら、その攻撃は効果なし', () => {
+    const game = startedGame(7, 'easy');
+    const ship = game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
+    game.planTarget(ship.cells[0]);
+    game.resolveRound();
+    game.resolveRound();
+    const [offset] = game.aiBoard.legalOffsets(ship);
+    const target = { row: ship.cells[0].row + offset.row, col: ship.cells[0].col + offset.col };
+    if (!game.aiBoard.hasBeenShot(target)) game.planTarget(target);
+    game.aiBoard.moveBy(ship, offset);
+    const attack = game.resolveRound().attack!;
+    expect(attack).toMatchObject({ coord: target, wasted: true });
+    expect(ship.hitCount).toBe(1);
   });
 });
 
@@ -99,39 +155,50 @@ describe('Game：AIの強さ', () => {
     expect(game.difficulty).toBe('hard');
   });
 
-  it('弱いAIは隣に外れ弾を受けても回避せず、必ず攻撃する', () => {
-    const game = new Game(() => 0, 'easy');
-    game.placeRemainingRandomly();
-    game.start();
-    game.playerAttack(findMissNextToShip(game));
-    expect(game.aiTakeTurn().kind).toBe('attack');
+  it('弱いAIは守りのターンに船を動かさない', () => {
+    const game = startedGame(3, 'easy');
+    for (let i = 0; i < 20 && game.phase === 'playing'; i++) {
+      if (game.turn === 'player') game.planTarget(firstUnshot(game));
+      const round = game.resolveRound();
+      if (round.attacker === 'player') expect(round.move).toBeNull();
+    }
   });
 });
 
-describe('Game：船の移動', () => {
-  it('プレイヤーが船を動かすと手番を使い、AIの番になる', () => {
+describe('Game：守り側の移動', () => {
+  it('プレイヤーは守りのターンに1隻の移動先を決められ、時間切れで攻撃より先に動く', () => {
     const game = startedGame();
-    const ship = game.playerBoard.ships.find((s) => game.playerBoard.legalMoves(s).length > 0)!;
-    const [direction] = game.playerBoard.legalMoves(ship);
-    game.playerMove(ship, direction);
+    game.resolveRound();
     expect(game.turn).toBe('ai');
-    expect(() => game.playerMove(ship, direction)).toThrow('AIの番');
-    expect(game.aiTakeTurn().kind).toBe('attack');
-    expect(game.turn).toBe('player');
+    const ship = game.playerBoard.ships.find((s) => game.playerBoard.legalOffsets(s).length > 0)!;
+    const [offset] = game.playerBoard.legalOffsets(ship);
+    const before = ship.cells.map((c) => ({ ...c }));
+    expect(() => game.planMove({ ship, offset: { row: 9, col: 9 } })).toThrow('動かせません');
+    game.planMove({ ship, offset });
+    const round = game.resolveRound();
+    expect(round.move).toEqual({ ship, offset });
+    expect(ship.cells[0]).toEqual({ row: before[0].row + offset.row, col: before[0].col + offset.col });
+    expect(game.playerBoard.shotAt(round.attack!.coord)).not.toBeNull();
   });
 
-  it('自分の船の隣に外れ弾を受けたAIは、攻撃の代わりに船を動かすことがある', () => {
-    const game = new Game(() => 0);
+  it('AIは守りのターンに、狙われそうな船を動かすことがある', () => {
+    const game = new Game(() => 0, 'normal');
     game.placeRemainingRandomly();
     game.start();
-    const near = findMissNextToShip(game);
-    game.playerAttack(near);
-    const action = game.aiTakeTurn();
-    expect(action.kind).toBe('move');
-    expect(game.turn).toBe('player');
-    expect(game.playerBoard.ships.every((s) => s.hitCount === 0)).toBe(true);
+    game.planTarget(findMissNextToShip(game));
+    game.resolveRound();
+    game.resolveRound();
+    const round = game.resolveRound();
+    expect(round.attacker).toBe('player');
+    expect(round.move).not.toBeNull();
   });
 });
+
+function countShots(board: Game['aiBoard']) {
+  let n = 0;
+  for (let row = 0; row < BOARD_SIZE; row++) for (let col = 0; col < BOARD_SIZE; col++) if (board.hasBeenShot({ row, col })) n++;
+  return n;
+}
 
 function findMissNextToShip(game: Game) {
   for (const ship of game.aiBoard.ships) {
@@ -139,7 +206,7 @@ function findMissNextToShip(game: Game) {
       for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
         const coord = { row: c.row + dr, col: c.col + dc };
         if (coord.row < 0 || coord.row >= BOARD_SIZE || coord.col < 0 || coord.col >= BOARD_SIZE) continue;
-        if (game.aiBoard.shipAtCell(coord) === null && game.aiBoard.legalMoves(ship).length > 0) return coord;
+        if (game.aiBoard.shipAtCell(coord) === null && game.aiBoard.legalOffsets(ship).length > 0) return coord;
       }
     }
   }

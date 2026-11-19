@@ -5,18 +5,23 @@ import {
   type AttackResult,
   type Coord,
   type Difficulty,
-  type Direction,
   type Orientation,
   type Random,
-  type Ship,
   type ShipType,
 } from './types';
 
 export type Phase = 'placement' | 'playing' | 'over';
 export type Side = 'player' | 'ai';
 
-/** What a side did with its turn: fire at a cell, or move one of its ships. */
-export type TurnAction = { kind: 'attack'; result: AttackResult } | ({ kind: 'move' } & ShipMove);
+/** Thinking time at the start of every round, in milliseconds. */
+export const THINK_MS = 5000;
+
+/** What happened when a round was resolved: the defender's move (if any), then the attack (if any). */
+export interface RoundOutcome {
+  attacker: Side;
+  move: ShipMove | null;
+  attack: AttackResult | null;
+}
 
 /**
  * The whole match as plain data + rules, with no DOM code.
@@ -24,12 +29,20 @@ export type TurnAction = { kind: 'attack'; result: AttackResult } | ({ kind: 'mo
  */
 export class Game {
   phase: Phase = 'placement';
+  /** Who attacks this round; the other side defends and may move one ship. */
   turn: Side = 'player';
+  /** The player's chosen target while attacking, or their planned ship move while defending. */
+  plannedTarget: Coord | null = null;
+  plannedMove: ShipMove | null = null;
+  /** Shots fired by each side. Marks on the board are not enough: a ship stopping on a miss erases it. */
+  readonly shots: Record<Side, { total: number; hits: number }> = { player: { total: 0, hits: 0 }, ai: { total: 0, hits: 0 } };
   winner: Side | null = null;
   playerBoard = new Board();
   aiBoard = new Board();
   private ai: AiPlayer;
-  private lastPlayerShot: AttackResult | null = null;
+  private lastPlayerShot: Coord | null = null;
+  private aiTarget: Coord | null = null;
+  private aiMove: ShipMove | null = null;
 
   constructor(
     private readonly random: Random = Math.random,
@@ -80,56 +93,73 @@ export class Game {
     if (this.nextShipToPlace() !== null) throw new Error('すべての船を配置してください');
     this.phase = 'playing';
     this.turn = 'player';
+    this.beginRound();
   }
 
-  playerAttack(coord: Coord): AttackResult {
+  /** While the player attacks: choose (or change, or clear) the cell to fire at when time is up. */
+  planTarget(coord: Coord | null): void {
     this.assertTurn('player');
-    const result = this.aiBoard.receiveAttack(coord);
-    this.lastPlayerShot = result;
-    this.finishTurn(this.aiBoard, 'player');
-    return result;
+    if (coord && this.aiBoard.hasBeenShot(coord)) throw new Error('そのマスは既に攻撃済みです');
+    this.plannedTarget = coord;
   }
 
-  /** Spend the player's turn moving one undamaged ship one cell instead of attacking. */
-  playerMove(ship: Ship, direction: Direction): void {
-    this.assertTurn('player');
-    this.playerBoard.moveShip(ship, direction);
-    this.lastPlayerShot = null;
-    this.turn = 'ai';
-  }
-
-  /** The AI's whole turn: dodge with a threatened ship, or otherwise attack. */
-  aiTakeTurn(): TurnAction {
+  /** While the player defends: choose (or change, or clear) where one ship moves when time is up. */
+  planMove(move: ShipMove | null): void {
     this.assertTurn('ai');
-    const evasion = chooseEvasion(this.aiBoard, this.lastPlayerShot, this.random, EVADE_CHANCES[this.difficulty]);
-    if (evasion) {
-      this.aiBoard.moveShip(evasion.ship, evasion.direction);
-      this.turn = 'player';
-      return { kind: 'move', ...evasion };
+    if (move && !this.playerBoard.canMoveBy(move.ship, move.offset)) {
+      throw new Error(`${move.ship.type.name}はそこへは動かせません`);
     }
-    return { kind: 'attack', result: this.aiAttack() };
+    this.plannedMove = move;
   }
 
-  aiAttack(): AttackResult {
-    this.assertTurn('ai');
-    const coord = this.ai.chooseTarget();
-    const result = this.playerBoard.receiveAttack(coord);
-    this.ai.recordResult(result);
-    this.finishTurn(this.playerBoard, 'ai');
-    return result;
+  /** Time is up: the defender's ship moves first, then the attacker fires (if a target was chosen). */
+  resolveRound(): RoundOutcome {
+    if (this.phase !== 'playing') throw new Error('ゲーム中ではありません');
+    const attacker = this.turn;
+    const defender = attacker === 'player' ? this.aiBoard : this.playerBoard;
+    let move = attacker === 'player' ? this.aiMove : this.plannedMove;
+    if (move && defender.canMoveBy(move.ship, move.offset)) defender.moveBy(move.ship, move.offset);
+    else move = null;
+
+    const target = attacker === 'player' ? this.plannedTarget : this.aiTarget;
+    let attack: AttackResult | null = null;
+    if (target) {
+      attack = defender.hasBeenShot(target)
+        ? { coord: target, outcome: 'miss', wasted: true }
+        : defender.receiveAttack(target);
+    }
+    if (attack) {
+      this.shots[attacker].total += 1;
+      if (attack.outcome !== 'miss') this.shots[attacker].hits += 1;
+    }
+    if (attacker === 'player') this.lastPlayerShot = target;
+
+    if (defender.allShipsSunk()) {
+      this.phase = 'over';
+      this.winner = attacker;
+    } else {
+      this.turn = attacker === 'player' ? 'ai' : 'player';
+      this.beginRound();
+    }
+    return { attacker, move, attack };
+  }
+
+  /** The AI decides its part of the round up front, so it cannot react to the player's choice. */
+  private beginRound(): void {
+    this.plannedTarget = null;
+    this.plannedMove = null;
+    this.aiTarget = null;
+    this.aiMove = null;
+    if (this.turn === 'ai') {
+      this.ai.observe(this.playerBoard);
+      this.aiTarget = this.ai.chooseTarget();
+    } else {
+      this.aiMove = chooseEvasion(this.aiBoard, this.lastPlayerShot, this.random, EVADE_CHANCES[this.difficulty]);
+    }
   }
 
   private assertTurn(side: Side): void {
     if (this.phase !== 'playing') throw new Error('ゲーム中ではありません');
     if (this.turn !== side) throw new Error(side === 'player' ? 'AIの番です' : 'プレイヤーの番です');
-  }
-
-  private finishTurn(defender: Board, attacker: Side): void {
-    if (defender.allShipsSunk()) {
-      this.phase = 'over';
-      this.winner = attacker;
-      return;
-    }
-    this.turn = attacker === 'player' ? 'ai' : 'player';
   }
 }

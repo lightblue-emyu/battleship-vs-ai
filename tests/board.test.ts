@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Board, placeFleetRandomly } from '../src/game/board';
+import { Board, moveRange, placeFleetRandomly } from '../src/game/board';
 import { BOARD_SIZE, FLEET } from '../src/game/types';
 import { seededRandom } from './helpers';
 
@@ -103,43 +103,59 @@ describe('Board: 攻撃の判定', () => {
 });
 
 describe('Board：船の移動', () => {
-  function setup() {
+  it('無傷の空母は5×5の範囲（上下左右に最大2マス）で動ける', () => {
+    const board = new Board();
+    const ship = board.placeShip(carrier, { row: 4, col: 2 }, 'horizontal');
+    expect(moveRange(ship)).toEqual({ min: -2, max: 2 });
+    expect(board.legalOffsets(ship)).toHaveLength(24);
+    expect(board.canMoveBy(ship, { row: -2, col: 2 })).toBe(true);
+    expect(board.canMoveBy(ship, { row: 3, col: 0 })).toBe(false);
+    board.moveBy(ship, { row: -2, col: 2 });
+    expect(ship.cells[0]).toEqual({ row: 2, col: 4 });
+    expect(board.shipAtCell({ row: 4, col: 2 })).toBeNull();
+  });
+
+  it('1回被弾するごとに範囲が狭くなる（空母：5×5 → 4×4。偶数のときは右・下に1マス多い）', () => {
+    const board = new Board();
+    const ship = board.placeShip(carrier, { row: 4, col: 2 }, 'horizontal');
+    board.receiveAttack({ row: 4, col: 2 });
+    expect(moveRange(ship)).toEqual({ min: -1, max: 2 });
+    expect(board.legalOffsets(ship)).toHaveLength(15);
+    expect(board.canMoveBy(ship, { row: 2, col: 2 })).toBe(true);
+    expect(board.canMoveBy(ship, { row: -2, col: 0 })).toBe(false);
+  });
+
+  it('残りが1マス以下の船（沈没寸前・沈没）は動けない', () => {
+    const board = new Board();
+    const ship = board.placeShip(destroyer, { row: 5, col: 5 }, 'horizontal');
+    expect(moveRange(ship)).toEqual({ min: 0, max: 1 });
+    board.receiveAttack({ row: 5, col: 5 });
+    expect(moveRange(ship)).toBeNull();
+    expect(board.legalOffsets(ship)).toEqual([]);
+  });
+
+  it('命中マークは船と一緒に動き、止まったマスの外れの印は消えてもう一度攻撃できる', () => {
     const board = new Board();
     const cruiser = board.placeShip(FLEET[2], { row: 4, col: 4 }, 'horizontal');
-    return { board, cruiser };
-  }
-
-  it('無傷の船は上下左右に1マス動かせて、攻撃は新しい位置に当たる', () => {
-    const { board, cruiser } = setup();
-    expect(board.legalMoves(cruiser)).toEqual(['up', 'down', 'left', 'right']);
-    board.moveShip(cruiser, 'right');
-    expect(cruiser.cells).toEqual([
-      { row: 4, col: 5 },
-      { row: 4, col: 6 },
-      { row: 4, col: 7 },
-    ]);
-    expect(board.shipAtCell({ row: 4, col: 4 })).toBeNull();
-    expect(board.receiveAttack({ row: 4, col: 4 }).outcome).toBe('miss');
-    expect(board.receiveAttack({ row: 4, col: 7 }).outcome).toBe('hit');
-  });
-
-  it('盤面の外・他の船の上・攻撃済みのマスには動かせない', () => {
-    const board = new Board();
-    const edge = board.placeShip(FLEET[4], { row: 0, col: 0 }, 'horizontal');
-    expect(board.canMoveShip(edge, 'up')).toBe(false);
-    expect(board.canMoveShip(edge, 'left')).toBe(false);
-
-    board.placeShip(FLEET[3], { row: 1, col: 0 }, 'horizontal');
-    expect(board.canMoveShip(edge, 'down')).toBe(false);
-
-    board.receiveAttack({ row: 0, col: 2 });
-    expect(board.canMoveShip(edge, 'right')).toBe(false);
-    expect(() => board.moveShip(edge, 'right')).toThrow('動かせません');
-  });
-
-  it('被弾した船は動かせない', () => {
-    const { board, cruiser } = setup();
     board.receiveAttack({ row: 4, col: 4 });
-    expect(board.legalMoves(cruiser)).toEqual([]);
+    board.receiveAttack({ row: 5, col: 6 });
+    board.moveBy(cruiser, { row: 1, col: 1 });
+    expect(cruiser.cells[0]).toEqual({ row: 5, col: 5 });
+    expect(board.shotAt({ row: 5, col: 5 })).toBe('hit');
+    expect(board.shotAt({ row: 4, col: 4 })).toBeNull();
+    expect(board.shotAt({ row: 5, col: 6 })).toBeNull();
+    expect(board.receiveAttack({ row: 5, col: 6 }).outcome).toBe('hit');
+    expect(cruiser.hitCount).toBe(2);
+  });
+
+  it('ほかの船は飛び越えられるが、重なる場所・盤面の外には止まれない', () => {
+    const board = new Board();
+    const ship = board.placeShip(carrier, { row: 0, col: 0 }, 'horizontal');
+    board.placeShip(destroyer, { row: 1, col: 0 }, 'horizontal');
+    expect(board.canMoveBy(ship, { row: 2, col: 0 })).toBe(true);
+    expect(board.canMoveBy(ship, { row: 1, col: 0 })).toBe(false);
+    expect(board.canMoveBy(ship, { row: -1, col: 0 })).toBe(false);
+    expect(board.canMoveBy(ship, { row: 0, col: 0 })).toBe(false);
+    expect(() => board.moveBy(ship, { row: 1, col: 0 })).toThrow('動かせません');
   });
 });
