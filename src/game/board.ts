@@ -100,6 +100,8 @@ export class Board {
     }
     ship.hits[segmentIndex(ship, coord)] = true;
     ship.hitCount += 1;
+    // After a repeat hit a ship can sink with unmarked segments; mark them so they can't be shot again.
+    if (isSunk(ship)) ship.hits.fill(true);
     return { coord, outcome: isSunk(ship) ? 'sunk' : 'hit', ship };
   }
 

@@ -142,6 +142,17 @@ describe('Board：船の移動', () => {
     expect(cruiser.hitCount).toBe(2);
   });
 
+  it('被弾済みの部分への再命中のあとで沈んでも、船の全マスが撃沈済みになり再攻撃できない', () => {
+    const board = new Board();
+    const cruiser = board.placeShip(FLEET[2], { row: 4, col: 4 }, 'horizontal');
+    board.receiveAttack({ row: 4, col: 4 });
+    board.receiveRepeatHit({ row: 4, col: 4 });
+    expect(board.receiveAttack({ row: 4, col: 5 }).outcome).toBe('sunk');
+    expect(board.hasBeenShot({ row: 4, col: 6 })).toBe(true);
+    expect(() => board.receiveAttack({ row: 4, col: 6 })).toThrow('既に攻撃済み');
+    expect(cruiser.hitCount).toBe(3);
+  });
+
   it('ほかの船と重なる場所・盤面の外には動けない', () => {
     const board = new Board();
     const ship = board.placeShip(carrier, { row: 0, col: 0 }, 'horizontal');
