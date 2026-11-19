@@ -29,7 +29,7 @@
 
 /* Until the missile lands, hide the result and show a pulsing lock-on frame instead. */
 .cell.incoming { --fx: none; z-index: 2; box-shadow: inset 0 0 0 2px var(--accent, #3ee0ff), 0 0 14px var(--accent, #3ee0ff); animation: lock-on 0.3s ease-in-out infinite; }
-.cell.incoming.hit[data-owner='ai'] { background-color: var(--cell-enemy); }
+.cell.incoming.hit[data-owner='ai'] { background-color: var(--cell-sea-enemy); }
 @keyframes lock-on { 50% { box-shadow: inset 0 0 0 2px var(--hit, #ff5a5f), 0 0 14px var(--hit, #ff5a5f); } }
 
 @media (prefers-reduced-motion: reduce) {

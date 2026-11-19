@@ -544,7 +544,7 @@ function buildGrid(container: HTMLElement) {
   const divider = document.createElement('div');
   divider.className = 'divider';
   divider.setAttribute('aria-hidden', 'true');
-  fragment.append(divider, labelCell(''));
+  fragment.append(...OWNERS.map(seaLayer), divider, labelCell(''));
   for (let i = 0; i < OWNERS.length; i++) {
     for (let col = 0; col < BOARD_SIZE; col++) fragment.append(labelCell(COLUMN_LABELS[col]));
   }
@@ -563,6 +563,15 @@ function buildGrid(container: HTMLElement) {
     }
   }
   container.replaceChildren(fragment);
+}
+
+/** Animated water drawn behind one board's cells (see sea.css). */
+function seaLayer(owner: Owner) {
+  const el = document.createElement('div');
+  el.className = 'sea';
+  el.dataset.owner = owner;
+  el.setAttribute('aria-hidden', 'true');
+  return el;
 }
 
 function labelCell(text: string) {
