@@ -421,3 +421,61 @@ describe('画面（UI）', () => {
     expect(sound.unlock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('表示言語（日本語 / English）', () => {
+  const japanese = /[\u3040-\u30ff\u4e00-\u9fff]/;
+  /** All visible text and labels except the language switch itself (which always shows 日本語). */
+  const screenText = () => {
+    const copy = root.cloneNode(true) as HTMLElement;
+    copy.querySelector('.lang-switch')!.remove();
+    const labels = [...copy.querySelectorAll('[aria-label], [title]')].map((el) => `${el.getAttribute('aria-label') ?? ''}${el.getAttribute('title') ?? ''}`);
+    return copy.textContent + labels.join('');
+  };
+
+  afterEach(() => {
+    localStorage.clear();
+    document.documentElement.lang = '';
+  });
+
+  it('最初は日本語で、「English」を押すと画面の文字がすべて英語になり、次に開いたときも英語のまま', () => {
+    expect(q('[data-lang=ja]').getAttribute('aria-pressed')).toBe('true');
+    expect(q('[data-ref=start]').textContent).toBe('ゲーム開始');
+
+    q<HTMLButtonElement>('[data-lang=en]').click();
+    expect(q('[data-lang=en]').getAttribute('aria-pressed')).toBe('true');
+    expect(document.documentElement.lang).toBe('en');
+    expect(q('[data-ref=start]').textContent).toBe('Start battle');
+    expect(q('[data-ref=status]').textContent).toBe('Place your ships. Click a cell in your zone (left) to place one.');
+    expect(screenText()).not.toMatch(japanese);
+
+    remount();
+    expect(q('[data-ref=start]').textContent).toBe('Start battle');
+    expect(q('[data-lang=en]').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('対戦中に切り替えても、案内・戦況ログ・艦隊パネル・勝敗画面が選んだ言語で表示される', () => {
+    remount({ difficulty: 'easy' });
+    startWithRandomFleet();
+    const destroyer = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
+    playerShoots(destroyer.cells[0]);
+
+    q<HTMLButtonElement>('[data-lang=en]').click();
+    expect([...q('[data-ref=log]').children].map((li) => li.textContent)).toEqual([
+      `You → ${String.fromCharCode(65 + destroyer.cells[0].col)}${destroyer.cells[0].row + 1}: hit!`,
+      'Battle start! (AI strength: Easy)',
+    ]);
+    const row = [...q('[data-ref=ai-fleet]').children].find((li) => li.textContent!.includes('Destroyer'))!;
+    expect(row.querySelector('.hits')!.textContent).toBe('Hits 1/2');
+    expect(row.querySelector('.badge')!.textContent).toBe('DAMAGED');
+    expect(screenText()).not.toMatch(japanese);
+
+    for (const t of app.game.aiBoard.ships.flatMap((s) => s.cells)) playerShoots(t);
+    expect(q('[data-ref=result-text]').textContent).toBe('You win! You sank the whole enemy fleet.');
+    expect(q('[data-ref=result-record]').textContent).toBe('Record 1W 0L (win rate 100%)');
+    expect(screenText()).not.toMatch(japanese);
+
+    q<HTMLButtonElement>('[data-lang=ja]').click();
+    expect(q('[data-ref=result-text]').textContent).toBe('あなたの勝利！ 敵艦隊をすべて撃沈しました。');
+    expect(q('[data-ref=log]').firstElementChild!.textContent).toMatch(/^あなた → [A-J]\d+：命中！/);
+  });
+});
