@@ -104,6 +104,19 @@ export class Board {
   }
 
   /**
+   * A shot lands on a ship segment that was already hit (the ship moved its damaged part
+   * under a target chosen before the move). It still counts: a ship sinks after as many
+   * hits as its length, wherever they land.
+   */
+  receiveRepeatHit(coord: Coord): AttackResult {
+    const ship = this.shipAtCell(coord);
+    if (!ship || !ship.hits[segmentIndex(ship, coord)] || isSunk(ship)) throw new Error('被弾済みの船の部分ではありません');
+    ship.hitCount += 1;
+    if (isSunk(ship)) ship.hits.fill(true);
+    return { coord, outcome: isSunk(ship) ? 'sunk' : 'hit', ship };
+  }
+
+  /**
    * A ship that is still afloat (damaged or not) may move one cell up, down, left or right
    * if every new cell is on the board and not occupied by another ship.
    */

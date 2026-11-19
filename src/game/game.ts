@@ -133,9 +133,7 @@ export class Game {
     const target = attacker === 'player' ? this.plannedTarget : this.aiTarget;
     let attack: AttackResult | null = null;
     if (target) {
-      attack = defender.hasBeenShot(target)
-        ? { coord: target, outcome: 'miss', wasted: true }
-        : defender.receiveAttack(target);
+      attack = defender.shotAt(target) === 'hit' ? defender.receiveRepeatHit(target) : defender.receiveAttack(target);
     }
     if (attack) {
       this.shots[attacker].total += 1;

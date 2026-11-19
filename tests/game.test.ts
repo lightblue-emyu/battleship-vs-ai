@@ -144,19 +144,25 @@ describe('Game', () => {
     expect(game.shots.player).toEqual({ total: 1, hits: 0 });
   });
 
-  it('狙ったマスに被弾済みの船の部分が移動してきたら、その攻撃は効果なし', () => {
+  it('被弾済みの部分が狙ったマスへ移動してきても1回の被弾として数え、長さと同じ回数で沈む', () => {
     const game = startedGame(7, 'easy');
-    const ship = game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
-    game.planTarget(ship.cells[0]);
+    const ship = game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
+    const [bow] = ship.cells.map((c) => ({ ...c }));
+    game.planTarget(bow);
     game.resolveRound();
     game.resolveRound();
-    const [offset] = game.aiBoard.legalOffsets(ship);
-    const target = { row: ship.cells[0].row + offset.row, col: ship.cells[0].col + offset.col };
-    if (!game.aiBoard.hasBeenShot(target)) game.planTarget(target);
+    const offset = game.aiBoard
+      .legalOffsets(ship)
+      .find((o) => !ship.cells.some((c) => c.row === bow.row + o.row && c.col === bow.col + o.col))!;
+    const target = { row: bow.row + offset.row, col: bow.col + offset.col };
+    game.planTarget(target);
     game.aiBoard.moveBy(ship, offset);
+    expect(game.aiBoard.shotAt(target)).toBe('hit');
     const attack = game.resolveRound().attack!;
-    expect(attack).toMatchObject({ coord: target, wasted: true });
-    expect(ship.hitCount).toBe(1);
+    expect(attack).toMatchObject({ coord: target, outcome: 'sunk' });
+    expect(ship.hitCount).toBe(2);
+    expect(game.aiBoard.remainingShips()).toHaveLength(4);
+    expect(game.shots.player).toEqual({ total: 2, hits: 2 });
   });
 });
 
