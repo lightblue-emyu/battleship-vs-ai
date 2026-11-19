@@ -100,6 +100,21 @@ export class Board {
     }
     ship.hits[segmentIndex(ship, coord)] = true;
     ship.hitCount += 1;
+    // After a repeat hit a ship can sink with unmarked segments; mark them so they can't be shot again.
+    if (isSunk(ship)) ship.hits.fill(true);
+    return { coord, outcome: isSunk(ship) ? 'sunk' : 'hit', ship };
+  }
+
+  /**
+   * A shot lands on a ship segment that was already hit (the ship moved its damaged part
+   * under a target chosen before the move). It still counts: a ship sinks after as many
+   * hits as its length, wherever they land.
+   */
+  receiveRepeatHit(coord: Coord): AttackResult {
+    const ship = this.shipAtCell(coord);
+    if (!ship || !ship.hits[segmentIndex(ship, coord)] || isSunk(ship)) throw new Error('被弾済みの船の部分ではありません');
+    ship.hitCount += 1;
+    if (isSunk(ship)) ship.hits.fill(true);
     return { coord, outcome: isSunk(ship) ? 'sunk' : 'hit', ship };
   }
 

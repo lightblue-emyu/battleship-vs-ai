@@ -41,8 +41,6 @@ export interface AttackResult {
   outcome: AttackOutcome;
   /** The ship that was hit or sunk (undefined on a miss). */
   ship?: Ship;
-  /** True when the target had become an already-hit ship segment, so the shot did nothing. */
-  wasted?: boolean;
 }
 
 /** How far a ship moves in one turn, in cells (negative = up / left). */

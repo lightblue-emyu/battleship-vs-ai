@@ -160,7 +160,6 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function describe(result: AttackResult, attacker: 'player' | 'ai'): string {
     const where = coordLabel(result.coord);
     const whose = attacker === 'player' ? '敵の' : 'あなたの';
-    if (result.wasted) return `${where}：被弾済みの部分に当たり、効果なし`;
     if (result.outcome === 'miss') return `${where}：外れ`;
     if (result.outcome === 'hit') return `${where}：命中！`;
     return `${where}：命中！ ${whose}${result.ship!.type.name}を撃沈！`;
