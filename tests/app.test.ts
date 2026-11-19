@@ -328,18 +328,24 @@ describe('画面（UI）', () => {
     const rows = () => [...q('[data-ref=ai-fleet]').children] as HTMLElement[];
     expect(q('[data-ref=ai-count]').textContent).toBe('5');
     expect(rows().map((li) => li.querySelector('.badge')!.textContent)).toEqual(Array(5).fill('健在'));
+    const cards = [...root.querySelectorAll('.side .card h3')].map((h) => h.textContent);
+    expect(cards[0]).toContain('自艦隊');
+    expect(cards[1]).toContain('敵艦隊');
+    expect(rows().find((li) => li.textContent!.includes('駆逐艦'))!.querySelector('.hits')!.textContent).toBe('被弾 0/2');
 
     const destroyer = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
     const [first, second] = destroyer.cells.map((c) => ({ ...c }));
     playerShoots(first);
     const row = rows().find((li) => li.textContent!.includes('駆逐艦'))!;
     expect(row.querySelector('.badge')!.textContent).toBe('被弾');
+    expect(row.querySelector('.hits')!.textContent).toBe('被弾 1/2');
     expect(row.querySelectorAll('.hull s.hit')).toHaveLength(1);
 
     playerShoots(second);
     const sunk = rows().find((li) => li.textContent!.includes('駆逐艦'))!;
     expect(sunk.classList.contains('sunk')).toBe(true);
     expect(sunk.querySelector('.badge')!.textContent).toBe('撃沈');
+    expect(sunk.querySelector('.hits')!.textContent).toBe('被弾 2/2');
     expect(q('[data-ref=ai-count]').textContent).toBe('4');
   });
 

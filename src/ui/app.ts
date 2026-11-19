@@ -675,6 +675,7 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
       li.className = sunk ? 'sunk' : pending ? 'pending' : damaged ? 'damaged' : 'intact';
       const name = document.createElement('em');
       name.textContent = type.name;
+      if (ship) name.append(Object.assign(document.createElement('small'), { className: 'hits', textContent: `被弾 ${ship.hitCount}/${type.length}` }));
       const hull = document.createElement('span');
       hull.className = 'hull';
       hull.style.setProperty('--len', String(type.length));
@@ -780,12 +781,12 @@ const TEMPLATE = /* html */ `
 
     <aside class="side">
       <section class="card">
-        <h3>敵艦隊 <span>残り <b data-ref="ai-count"></b> / ${FLEET.length} 隻</span></h3>
-        <ul class="fleet enemy" data-ref="ai-fleet" aria-label="敵の船"></ul>
-      </section>
-      <section class="card">
         <h3>自艦隊 <span>残り <b data-ref="player-count"></b> / ${FLEET.length} 隻</span></h3>
         <ul class="fleet" data-ref="player-fleet" aria-label="あなたの船"></ul>
+      </section>
+      <section class="card">
+        <h3>敵艦隊 <span>残り <b data-ref="ai-count"></b> / ${FLEET.length} 隻</span></h3>
+        <ul class="fleet enemy" data-ref="ai-fleet" aria-label="敵の船"></ul>
       </section>
       <section class="card log-panel">
         <h3>戦況ログ</h3>
