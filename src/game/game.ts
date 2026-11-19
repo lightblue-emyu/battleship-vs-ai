@@ -13,9 +13,6 @@ import {
 export type Phase = 'placement' | 'playing' | 'over';
 export type Side = 'player' | 'ai';
 
-/** Thinking time at the start of every round, in milliseconds. */
-export const THINK_MS = 5000;
-
 /** What happened when a round was resolved: the defender's move (if any), then the attack (if any). */
 export interface RoundOutcome {
   attacker: Side;
@@ -112,7 +109,19 @@ export class Game {
     this.plannedMove = move;
   }
 
-  /** Time is up: the defender's ship moves first, then the attacker fires (if a target was chosen). */
+  /** The player's attack round: fire at `coord` (the AI's move, decided earlier, happens first). */
+  playerAttack(coord: Coord): RoundOutcome {
+    this.planTarget(coord);
+    return this.resolveRound();
+  }
+
+  /** The player's defence round: move one ship one cell, or pass `null` for no move; then the AI fires. */
+  playerDefend(move: ShipMove | null): RoundOutcome {
+    this.planMove(move);
+    return this.resolveRound();
+  }
+
+  /** Resolve the round: the defender's ship moves first, then the attacker fires (if a target was chosen). */
   resolveRound(): RoundOutcome {
     if (this.phase !== 'playing') throw new Error('ゲーム中ではありません');
     const attacker = this.turn;

@@ -60,6 +60,23 @@ describe('Game', () => {
     expect(game.turn).toBe('player');
   });
 
+  it('playerAttack はすぐ発射し、playerDefend は移動（またはなし）のあとAIが発射する', () => {
+    const game = startedGame();
+    const round = game.playerAttack({ row: 0, col: 0 });
+    expect(round.attack?.coord).toEqual({ row: 0, col: 0 });
+    expect(game.turn).toBe('ai');
+    const ship = game.playerBoard.ships.find((s) => game.playerBoard.legalOffsets(s).length > 0)!;
+    const [offset] = game.playerBoard.legalOffsets(ship);
+    const defence = game.playerDefend({ ship, offset });
+    expect(defence.move).toEqual({ ship, offset });
+    expect(defence.attack).not.toBeNull();
+    expect(game.turn).toBe('player');
+    game.playerAttack({ row: 0, col: 1 });
+    const pass = game.playerDefend(null);
+    expect(pass.move).toBeNull();
+    expect(pass.attack).not.toBeNull();
+  });
+
   it('攻撃側が狙いを決めなければ、そのターンは攻撃なし', () => {
     const game = startedGame();
     const round = game.resolveRound();
@@ -173,7 +190,7 @@ describe('Game：守り側の移動', () => {
     const ship = game.playerBoard.ships.find((s) => game.playerBoard.legalOffsets(s).length > 0)!;
     const [offset] = game.playerBoard.legalOffsets(ship);
     const before = ship.cells.map((c) => ({ ...c }));
-    expect(() => game.planMove({ ship, offset: { row: 9, col: 9 } })).toThrow('動かせません');
+    expect(() => game.planMove({ ship, offset: { row: 1, col: 1 } })).toThrow('動かせません');
     game.planMove({ ship, offset });
     const round = game.resolveRound();
     expect(round.move).toEqual({ ship, offset });

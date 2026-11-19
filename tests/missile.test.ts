@@ -40,14 +40,12 @@ describe('ミサイルの演出（画面）', () => {
 
   let sounds: SoundEffect[];
 
-  const THINK = 500;
-
   function mount(difficulty: 'easy' | 'normal' = 'normal') {
     root = document.createElement('div');
     document.body.append(root);
     sounds = [];
     const sound = { muted: false, unlock: vi.fn(), play: (effect: SoundEffect) => void sounds.push(effect) };
-    app = mountApp(root, { random: seededRandom(9), thinkMs: THINK, missileMs: 400, difficulty, sound, record: createRecordStore(null) });
+    app = mountApp(root, { random: seededRandom(9), missileMs: 400, difficulty, sound, record: createRecordStore(null) });
     q<HTMLButtonElement>('[data-ref=random]').click();
     q<HTMLButtonElement>('[data-ref=start]').click();
   }
@@ -63,7 +61,6 @@ describe('ミサイルの演出（画面）', () => {
   it('あなたの攻撃：ミサイルが敵陣のマスへ飛び、着弾するまで結果を隠す', () => {
     mount();
     cell('ai', 4, 6).click();
-    vi.advanceTimersByTime(THINK);
     const missile = q('.grid .missile');
     expect(missile.dataset.shooter).toBe('player');
     expect(cell('ai', 4, 6).classList.contains('incoming')).toBe(true);
@@ -79,11 +76,9 @@ describe('ミサイルの演出（画面）', () => {
   it('AIの攻撃：AIのミサイルが自陣のマスへ飛んでくる', () => {
     mount();
     cell('ai', 0, 0).click();
-    vi.advanceTimersByTime(THINK + 400);
+    vi.advanceTimersByTime(400);
     expect(root.querySelectorAll('.missile')).toHaveLength(0);
-    vi.advanceTimersByTime(THINK - 1);
-    expect(root.querySelectorAll('.missile')).toHaveLength(0);
-    vi.advanceTimersByTime(1);
+    q<HTMLButtonElement>('[data-ref=no-move]').click();
     expect(q('.grid .missile').dataset.shooter).toBe('ai');
     const incoming = root.querySelectorAll<HTMLElement>('.cell.incoming');
     expect(incoming).toHaveLength(1);
@@ -96,7 +91,6 @@ describe('ミサイルの演出（画面）', () => {
   it('飛んでいる途中で「最初からやり直す」と、ミサイルも消える', () => {
     mount();
     cell('ai', 2, 2).click();
-    vi.advanceTimersByTime(THINK);
     expect(root.querySelectorAll('.missile')).toHaveLength(1);
     q<HTMLButtonElement>('[data-ref=restart]').click();
     expect(root.querySelectorAll('.missile, .incoming')).toHaveLength(0);
@@ -106,7 +100,6 @@ describe('ミサイルの演出（画面）', () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce'), media: query }));
     mount();
     cell('ai', 3, 3).click();
-    vi.advanceTimersByTime(THINK);
     expect(root.querySelectorAll('.missile, .incoming')).toHaveLength(0);
     expect(cell('ai', 3, 3).classList.contains('hit') || cell('ai', 3, 3).classList.contains('miss')).toBe(true);
   });
@@ -115,7 +108,6 @@ describe('ミサイルの演出（画面）', () => {
     mount();
     const target = app.game.aiBoard.ships[0].cells[0];
     cell('ai', target.row, target.col).click();
-    vi.advanceTimersByTime(THINK);
     expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
     expect(q('[data-ref=status]').textContent).not.toContain('命中');
     expect(sounds).toEqual([]);
@@ -130,7 +122,8 @@ describe('ミサイルの演出（画面）', () => {
   it('AIの攻撃も、着弾してから結果と効果音が出る', () => {
     mount();
     cell('ai', 0, 0).click();
-    vi.advanceTimersByTime(THINK + 400 + THINK);
+    vi.advanceTimersByTime(400);
+    q<HTMLButtonElement>('[data-ref=no-move]').click();
     expect(q('[data-ref=status]').textContent).toContain('AIが');
     expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
     expect(root.textContent).not.toContain('AI →');
@@ -146,11 +139,12 @@ describe('ミサイルの演出（画面）', () => {
     while (unshot().length > 1) {
       const t = unshot()[0];
       cell('ai', t.row, t.col).click();
-      vi.advanceTimersByTime(THINK + 400 + THINK + 400);
+      vi.advanceTimersByTime(400);
+      q<HTMLButtonElement>('[data-ref=no-move]').click();
+      vi.advanceTimersByTime(400);
     }
     const last = unshot()[0];
     cell('ai', last.row, last.col).click();
-    vi.advanceTimersByTime(THINK);
     expect(app.game.phase).toBe('over');
     expect(q('[data-ref=status]').textContent).toContain('ミサイル発射');
     expect(q('[data-ref=result]').hidden).toBe(true);

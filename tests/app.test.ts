@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isSunk } from '../src/game/board';
 import { mountApp } from '../src/ui/app';
 import { createRecordStore, type RecordStore } from '../src/ui/record';
 import type { SoundEffect, SoundPlayer } from '../src/ui/sound';
@@ -10,7 +11,6 @@ let app: ReturnType<typeof mountApp>;
 let sounds: SoundEffect[];
 let sound: SoundPlayer;
 let record: RecordStore;
-const THINK = 500;
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
 const cell = (owner: 'player' | 'ai', row: number, col: number) =>
@@ -23,7 +23,7 @@ beforeEach(() => {
   sounds = [];
   sound = { muted: false, unlock: vi.fn(), play: (effect) => void (sound.muted || sounds.push(effect)) };
   record = createRecordStore(null);
-  app = mountApp(root, { random: seededRandom(9), thinkMs: THINK, missileMs: 0, sound, record });
+  app = mountApp(root, { random: seededRandom(9), missileMs: 0, sound, record });
 });
 
 afterEach(() => {
@@ -40,14 +40,18 @@ function cellsWhere(pred: (c: { row: number; col: number }) => boolean) {
 
 function remount(options: Parameters<typeof mountApp>[1] = {}) {
   app.destroy();
-  app = mountApp(root, { random: seededRandom(9), thinkMs: THINK, missileMs: 0, sound, record, ...options });
+  app = mountApp(root, { random: seededRandom(9), missileMs: 0, sound, record, ...options });
 }
 
-/** Lets the AI's attack round run out (if it is the AI's turn), then fires at `coord` in the player's round. */
+/** In the AI's attack round, choose no move so the AI fires. */
+function passDefence() {
+  if (app.game.phase === 'playing' && app.game.turn === 'ai') q<HTMLButtonElement>('[data-ref=no-move]').click();
+}
+
+/** Fires at `coord` in the player's round (passing the AI's round first if needed). */
 function playerShoots(coord: { row: number; col: number }) {
-  if (app.game.turn !== 'player') vi.advanceTimersByTime(THINK);
+  passDefence();
   cell('ai', coord.row, coord.col).click();
-  vi.advanceTimersByTime(THINK);
 }
 
 const marks = (owner: 'player' | 'ai') =>
@@ -97,85 +101,69 @@ describe('画面（UI）', () => {
     expect(q<HTMLButtonElement>('[data-ref=start]').disabled).toBe(true);
   });
 
-  it('攻撃側は5秒のシンキングタイムに狙うマスを選び、時間切れで発射される', () => {
-    remount({ thinkMs: undefined });
+  it('あなたの攻撃はマスを押した瞬間に発射され、守りのターンは「移動なし」を押すとAIが発射する', () => {
     startWithRandomFleet();
-    expect(q('[data-ref=thinking]').hidden).toBe(false);
-    expect(q('[data-ref=thinking-role]').textContent).toContain('あなたの攻撃');
-    expect(q('[data-ref=thinking-left]').textContent).toBe('残り 5 秒');
+    expect(q('[data-ref=status]').textContent).toContain('あなたの攻撃ターン');
+    expect(q<HTMLButtonElement>('[data-ref=no-move]').disabled).toBe(true);
     cell('ai', 0, 0).click();
-    expect(cell('ai', 0, 0).classList.contains('planned')).toBe(true);
-    expect(q('[data-ref=status]').textContent).toContain('A1に狙いを定めました');
-    vi.advanceTimersByTime(2000);
-    expect(q('[data-ref=thinking-left]').textContent).toBe('残り 3 秒');
-    expect(marks('ai')).toBe(0);
-
-    vi.advanceTimersByTime(3000);
     expect(marks('ai')).toBe(1);
     expect(q('[data-ref=status]').textContent).toMatch(/A1：(外れ|命中)/);
     expect(app.game.turn).toBe('ai');
-    expect(q('[data-ref=thinking-role]').textContent).toContain('あなたの守り');
+    expect(q('[data-ref=status]').textContent).toContain('移動なし');
+    expect(marks('player')).toBe(0);
 
-    vi.advanceTimersByTime(5000);
+    q<HTMLButtonElement>('[data-ref=no-move]').click();
     expect(marks('player')).toBe(1);
     expect(app.game.turn).toBe('player');
     expect(q('[data-ref=log]').children).toHaveLength(3);
   });
 
-  it('狙いを選ばずに時間切れになると、そのターンは攻撃なし', () => {
+  it('シンキングタイムはなく、待っていても勝手には進まない', () => {
     startWithRandomFleet();
-    vi.advanceTimersByTime(THINK);
+    expect(root.querySelector('[data-ref=thinking]')).toBeNull();
+    vi.advanceTimersByTime(10000);
     expect(marks('ai')).toBe(0);
-    expect(app.game.turn).toBe('ai');
-    expect(q('[data-ref=log]').textContent).toContain('攻撃なし');
-  });
-
-  it('狙いは時間切れまで変更・取り消しでき、AIの攻撃ターンには敵陣を押せない', () => {
-    startWithRandomFleet();
+    expect(app.game.turn).toBe('player');
     cell('ai', 0, 0).click();
-    cell('ai', 0, 1).click();
-    expect(root.querySelectorAll('.cell.planned')).toHaveLength(1);
-    expect(cell('ai', 0, 1).classList.contains('planned')).toBe(true);
-    cell('ai', 0, 1).click();
-    expect(root.querySelectorAll('.cell.planned')).toHaveLength(0);
-    vi.advanceTimersByTime(THINK);
-    expect(marks('ai')).toBe(0);
-    expect(cell('ai', 5, 5).disabled).toBe(true);
-    cell('ai', 5, 5).click();
-    expect(app.game.plannedTarget).toBeNull();
+    vi.advanceTimersByTime(10000);
+    expect(marks('player')).toBe(0);
+    expect(app.game.turn).toBe('ai');
   });
 
-  it('ミサイルが飛んでいる間は、狙いも船の選択もできない', () => {
+  it('ミサイルが飛んでいる間は、攻撃も船の選択も「移動なし」もできない', () => {
     remount({ missileMs: 800 });
     startWithRandomFleet();
     cell('ai', 0, 0).click();
-    vi.advanceTimersByTime(THINK);
     expect(root.querySelector('.missile[data-shooter=player]')).not.toBeNull();
+    expect(q<HTMLButtonElement>('[data-ref=no-move]').disabled).toBe(true);
+    q<HTMLButtonElement>('[data-ref=no-move]').click();
+    expect(marks('player')).toBe(0);
     vi.advanceTimersByTime(800);
     expect(marks('ai')).toBe(1);
-    vi.advanceTimersByTime(THINK);
+
+    q<HTMLButtonElement>('[data-ref=no-move]').click();
     expect(root.querySelector('.missile[data-shooter=ai]')).not.toBeNull();
     expect(q('[data-ref=status]').textContent).toMatch(/^AIが.+へミサイル発射！/);
     expect(cell('ai', 5, 5).disabled).toBe(true);
-
     cell('ai', 5, 5).click();
     root.querySelector<HTMLButtonElement>('button.cell[data-owner=player].ship')!.click();
-    expect(app.game.plannedTarget).toBeNull();
+    expect(marks('ai')).toBe(1);
     expect(root.querySelector('button.cell[data-owner=player].selected')).toBeNull();
 
     vi.advanceTimersByTime(800);
     expect(root.querySelector('.missile')).toBeNull();
     expect(marks('player')).toBe(1);
     cell('ai', 5, 5).click();
-    expect(app.game.plannedTarget).toEqual({ row: 5, col: 5 });
+    expect(marks('ai')).toBe(2);
   });
 
-  it('攻撃済みのマスは狙えない', () => {
+  it('攻撃済みのマスは押しても無視される', () => {
     startWithRandomFleet();
     playerShoots({ row: 3, col: 3 });
-    vi.advanceTimersByTime(THINK);
+    passDefence();
     cell('ai', 3, 3).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(app.game.plannedTarget).toBeNull();
+    expect(marks('ai')).toBe(1);
+    expect(app.game.turn).toBe('player');
     expect(cell('ai', 3, 3).disabled).toBe(true);
   });
 
@@ -187,7 +175,6 @@ describe('画面（UI）', () => {
     expect(q('[data-ref=result]').hidden).toBe(false);
     expect(q('[data-ref=result-title]').textContent).toBe('VICTORY');
     expect(q('[data-ref=result-text]').textContent).toContain('あなたの勝利');
-    expect(q('[data-ref=thinking]').hidden).toBe(true);
     const stats = [...q('[data-ref=result-stats]').children].map((el) => el.textContent);
     expect(stats).toEqual([`${targets.length}攻撃回数`, '100%命中率', expect.stringMatching(/^\d\/5残った自艦$/)]);
     expect(q('[data-ref=result-record]').textContent).toBe('通算成績 1勝 0敗（勝率 100%）');
@@ -200,7 +187,8 @@ describe('画面（UI）', () => {
     expect(q('[data-ref=log]').children).toHaveLength(0);
   });
 
-  it('シンキングタイム中に再スタートしても、新しいゲームに前の攻撃が紛れ込まない', () => {
+  it('ミサイルが飛んでいる途中に再スタートしても、新しいゲームに前の攻撃が紛れ込まない', () => {
+    remount({ missileMs: 800 });
     startWithRandomFleet();
     cell('ai', 0, 0).click();
     q<HTMLButtonElement>('[data-ref=restart]').click();
@@ -211,7 +199,14 @@ describe('画面（UI）', () => {
 
   it('敗北後は結果画面を閉じて、公開された敵の残りの船を確認できる', () => {
     startWithRandomFleet();
-    for (let i = 0; i < 1000 && app.game.phase === 'playing'; i++) vi.advanceTimersByTime(THINK);
+    for (let i = 0; i < 1000 && app.game.phase === 'playing'; i++) {
+      if (app.game.turn === 'ai') {
+        passDefence();
+        continue;
+      }
+      const empty = cellsWhere((c) => !app.game.aiBoard.hasBeenShot(c) && app.game.aiBoard.shipAtCell(c) === null)[0];
+      cell('ai', empty.row, empty.col).click();
+    }
     const enemyCells = new Set(app.game.aiBoard.ships.flatMap((s) => s.cells).map((c) => `${c.row},${c.col}`));
     expect(app.game.winner).toBe('ai');
     expect(q('[data-ref=result]').hidden).toBe(false);
@@ -226,49 +221,70 @@ describe('画面（UI）', () => {
     expect(q('[data-ref=result]').hidden).toBe(true);
   });
 
-  it('守りのターンに船を選んで移動先のマスをクリックすると、時間切れで攻撃より先に動く', () => {
+  it('守りのターンに船を選び、光ったマスをクリックすると1マス動いてからAIが発射する', () => {
     startWithRandomFleet();
     const pick = () => app.game.playerBoard.ships.find((s) => app.game.playerBoard.legalOffsets(s).length > 0)!;
     let ship = pick();
     cell('player', ship.cells[0].row, ship.cells[0].col).click();
     expect(root.querySelectorAll('.cell.selected')).toHaveLength(0);
 
-    vi.advanceTimersByTime(THINK);
+    cell('ai', 0, 0).click();
     expect(app.game.turn).toBe('ai');
     ship = pick();
     cell('player', ship.cells[0].row, ship.cells[0].col).click();
     expect(cell('player', ship.cells[0].row, ship.cells[0].col).classList.contains('selected')).toBe(true);
-    const n = ship.type.length - ship.hitCount;
-    expect(q('[data-ref=move-info]').textContent).toContain(`${ship.type.name}（${n}×${n}の範囲）`);
+    expect(q('[data-ref=move-info]').textContent).toContain(ship.type.name);
     const offsets = app.game.playerBoard.legalOffsets(ship);
-    expect(root.querySelectorAll('[data-owner=player].reach')).toHaveLength(offsets.length);
+    const newCells = (o: { row: number; col: number }) =>
+      ship.cells.map((c) => ({ row: c.row + o.row, col: c.col + o.col })).filter((c) => !ship.cells.some((d) => d.row === c.row && d.col === c.col));
+    const expected = new Set(offsets.flatMap(newCells).map((c) => `${c.row},${c.col}`));
+    expect(root.querySelectorAll('[data-owner=player].reach')).toHaveLength(expected.size);
+
+    const before = ship.cells.map((c) => ({ ...c }));
+    for (const c of before) cell('player', c.row, c.col).click();
+    expect(ship.cells).toEqual(before);
+    expect(app.game.turn).toBe('ai');
 
     const [offset] = offsets;
-    const centre = ship.cells[Math.floor((ship.cells.length - 1) / 2)];
-    const before = ship.cells.map((c) => ({ ...c }));
-    cell('player', centre.row + offset.row, centre.col + offset.col).click();
-    expect(app.game.plannedMove).toEqual({ ship, offset });
-    expect(root.querySelectorAll('[data-owner=player].ghost')).toHaveLength(ship.type.length);
-    expect(ship.cells).toEqual(before);
-
-    vi.advanceTimersByTime(THINK);
+    const [dest] = newCells(offset);
+    cell('player', dest.row, dest.col).click();
     expect(ship.cells).toEqual(before.map((c) => ({ row: c.row + offset.row, col: c.col + offset.col })));
     expect(q('[data-ref=log]').textContent).toContain(`あなた → ${ship.type.name}を`);
     expect(marks('player')).toBe(1);
     expect(app.game.turn).toBe('player');
   });
 
-  it('矢印キーでも移動先を動かせて、Escで取り消せる', () => {
+  it('矢印キーでも1マス動かせて、Escで選択を解除できる', () => {
     startWithRandomFleet();
-    vi.advanceTimersByTime(THINK);
+    cell('ai', 0, 0).click();
     const ship = app.game.playerBoard.ships.find((s) => app.game.playerBoard.canMoveBy(s, { row: 0, col: 1 }))!;
     cell('player', ship.cells[0].row, ship.cells[0].col).click();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
-    expect(app.game.plannedMove).toEqual({ ship, offset: { row: 0, col: 1 } });
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(app.game.plannedMove).toBeNull();
-    expect(root.querySelectorAll('.cell.selected, .cell.ghost')).toHaveLength(0);
+    expect(root.querySelectorAll('.cell.selected')).toHaveLength(0);
     expect(q('[data-ref=status]').textContent).toContain('AIの攻撃ターン');
+    expect(app.game.turn).toBe('ai');
+
+    const start = { ...ship.cells[0] };
+    cell('player', start.row, start.col).click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    expect(ship.cells[0]).toEqual({ row: start.row, col: start.col + 1 });
+    expect(app.game.turn).toBe('player');
+  });
+
+  it('被弾した船も、沈んでいなければ守りのターンに動かせる', () => {
+    startWithRandomFleet();
+    const shootAny = () => {
+      const c = cellsWhere((x) => !app.game.aiBoard.hasBeenShot(x))[0];
+      cell('ai', c.row, c.col).click();
+    };
+    for (let i = 0; i < 200 && !app.game.playerBoard.ships.some((s) => s.hitCount > 0 && !isSunk(s)); i++) {
+      if (app.game.turn === 'ai') passDefence();
+      else shootAny();
+    }
+    if (app.game.turn === 'player') shootAny();
+    const damaged = app.game.playerBoard.ships.find((s) => s.hitCount > 0 && !isSunk(s) && app.game.playerBoard.legalOffsets(s).length > 0)!;
+    cell('player', damaged.cells[0].row, damaged.cells[0].col).click();
+    expect(q('[data-ref=move-info]').textContent).toContain(damaged.type.name);
   });
 
   it('AIの強さを選べて、開始後は変更できず、再スタート後も選んだ強さが残る', () => {
@@ -312,7 +328,6 @@ describe('画面（UI）', () => {
     const rows = () => [...q('[data-ref=ai-fleet]').children] as HTMLElement[];
     expect(q('[data-ref=ai-count]').textContent).toBe('5');
     expect(rows().map((li) => li.querySelector('.badge')!.textContent)).toEqual(Array(5).fill('健在'));
-    expect(q('[data-ref=player-fleet]').children[0].textContent).toContain('移動5×5');
 
     const destroyer = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
     const [first, second] = destroyer.cells.map((c) => ({ ...c }));
@@ -350,10 +365,9 @@ describe('画面（UI）', () => {
     const ship = app.game.aiBoard.ships.find((s) => s.type.id === 'destroyer')!;
     const [first, second] = ship.cells.map((c) => ({ ...c }));
     for (const [target, effect] of [[first, 'hit'], [second, 'sunk']] as const) {
-      vi.advanceTimersByTime(THINK);
+      passDefence();
       sounds = [];
       cell('ai', target.row, target.col).click();
-      vi.advanceTimersByTime(THINK);
       expect(sounds).toEqual([effect]);
     }
   });
@@ -362,8 +376,10 @@ describe('画面（UI）', () => {
     startWithRandomFleet();
     let aiHits = 0;
     while (app.game.phase === 'playing' && aiHits === 0) {
+      const empty = cellsWhere((c) => !app.game.aiBoard.hasBeenShot(c) && app.game.aiBoard.shipAtCell(c) === null)[0];
+      cell('ai', empty.row, empty.col).click();
       sounds = [];
-      vi.advanceTimersByTime(THINK);
+      passDefence();
       aiHits = root.querySelectorAll('[data-owner=player].hit').length;
     }
     expect(sounds.length).toBe(1);

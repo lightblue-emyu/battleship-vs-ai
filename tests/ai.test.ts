@@ -163,7 +163,7 @@ describe('chooseEvasion（AIの回避）', () => {
     const board = new Board();
     const ship = board.placeShip(FLEET[4], { row: 5, col: 5 }, 'horizontal');
     board.receiveAttack({ row: 4, col: 5 });
-    expect(chooseEvasion(board, { row: 4, col: 5 }, always)).toEqual({ ship, offset: { row: 1, col: 1 } });
+    expect(chooseEvasion(board, { row: 4, col: 5 }, always)).toEqual({ ship, offset: { row: 1, col: 0 } });
   });
 
   it('被弾した船は、直前の弾の位置に関係なく動かそうとする', () => {
@@ -192,11 +192,11 @@ describe('AiPlayer.observe（動く船への対応）', () => {
     const board = new Board();
     const cruiser = board.placeShip(FLEET[2], { row: 4, col: 4 }, 'horizontal');
     board.receiveAttack({ row: 4, col: 4 });
-    board.moveBy(cruiser, { row: 1, col: 1 });
+    board.moveBy(cruiser, { row: 1, col: 0 });
     const ai = new AiPlayer(seededRandom(1), 'normal');
     ai.observe(board);
     const target = ai.chooseTarget();
-    expect(Math.abs(target.row - 5) + Math.abs(target.col - 5)).toBe(1);
+    expect(Math.abs(target.row - 5) + Math.abs(target.col - 4)).toBe(1);
     expect(board.hasBeenShot(target)).toBe(false);
   });
 
@@ -207,7 +207,7 @@ describe('AiPlayer.observe（動く船への対応）', () => {
     const ai = new AiPlayer(seededRandom(1), 'easy');
     ai.observe(board);
     expect(ai.hasTried({ row: 1, col: 1 })).toBe(true);
-    board.moveBy(destroyer, { row: 1, col: 1 });
+    board.moveBy(destroyer, { row: 1, col: 0 });
     ai.observe(board);
     expect(ai.hasTried({ row: 1, col: 1 })).toBe(false);
   });

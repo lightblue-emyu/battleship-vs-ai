@@ -31,16 +31,13 @@ export function shipOrientation(ship: Ship): Orientation {
   return ship.cells.length > 1 && ship.cells[0].row === ship.cells[1].row ? 'horizontal' : 'vertical';
 }
 
-/**
- * How far a ship may move this turn: N = undamaged segments, and the ship may shift
- * anywhere inside an N x N square around itself. For even N the extra row/column
- * is on the right/bottom. Returns the per-axis offset range, or null if it cannot move.
- */
-export function moveRange(ship: Ship): { min: number; max: number } | null {
-  const n = ship.type.length - ship.hitCount;
-  if (n <= 1) return null;
-  return { min: 0 - Math.floor((n - 1) / 2) || 0, max: Math.ceil((n - 1) / 2) };
-}
+/** A ship moves one cell up, down, left or right per turn. */
+export const MOVE_STEPS: readonly Offset[] = [
+  { row: -1, col: 0 },
+  { row: 1, col: 0 },
+  { row: 0, col: -1 },
+  { row: 0, col: 1 },
+];
 
 export function shiftCells(cells: Coord[], offset: Offset): Coord[] {
   return cells.map((c) => ({ row: c.row + offset.row, col: c.col + offset.col }));
@@ -107,16 +104,12 @@ export class Board {
   }
 
   /**
-   * A ship that is still afloat may shift by `offset` if the offset is inside its
-   * move range and every new cell is on the board and not occupied by another ship.
-   * It may pass over ships and shot cells on the way; only where it stops matters.
+   * A ship that is still afloat (damaged or not) may move one cell up, down, left or right
+   * if every new cell is on the board and not occupied by another ship.
    */
   canMoveBy(ship: Ship, offset: Offset): boolean {
-    const range = moveRange(ship);
-    if (!range || !this.ships.includes(ship)) return false;
-    if (offset.row === 0 && offset.col === 0) return false;
-    const inRange = (v: number) => v >= range.min && v <= range.max;
-    if (!inRange(offset.row) || !inRange(offset.col)) return false;
+    if (isSunk(ship) || !this.ships.includes(ship)) return false;
+    if (!MOVE_STEPS.some((d) => d.row === offset.row && d.col === offset.col)) return false;
     return shiftCells(ship.cells, offset).every((c) => {
       if (!isInBounds(c)) return false;
       const occupant = this.shipAt[c.row][c.col];
@@ -136,15 +129,7 @@ export class Board {
   }
 
   legalOffsets(ship: Ship): Offset[] {
-    const range = moveRange(ship);
-    if (!range) return [];
-    const out: Offset[] = [];
-    for (let row = range.min; row <= range.max; row++) {
-      for (let col = range.min; col <= range.max; col++) {
-        if (this.canMoveBy(ship, { row, col })) out.push({ row, col });
-      }
-    }
-    return out;
+    return MOVE_STEPS.filter((d) => this.canMoveBy(ship, d));
   }
 
   allShipsSunk(): boolean {
