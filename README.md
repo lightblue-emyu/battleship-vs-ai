@@ -6,7 +6,7 @@
 
 - **遊ぶ**: https://lightblue-emyu.github.io/battleship-vs-ai/
 - **しくみの解説（初心者向け・図あり）**: [docs/how-it-works.md](docs/how-it-works.md)
-- **見つけたバグと修正内容**: [docs/bug-report.md](docs/bug-report.md)
+- **見つけたバグと修正内容**: [docs/bug-report.md](docs/bug-report.md)（英語版：[docs/bug-report.en.md](docs/bug-report.en.md)）
 
 ## 遊び方
 
