@@ -15,6 +15,7 @@ import {
 } from '../game/types';
 import { launchMissile, MISSILE_FLIGHT_MS, prefersReducedMotion, type Shooter } from './missile';
 import { createRecordStore, winRate, type GameRecord, type RecordStore } from './record';
+import { LANGS, loadLanguage, MESSAGES, saveLanguage, type Lang, type Messages } from './i18n';
 import { createSoundPlayer, soundForOutcome, type SoundPlayer } from './sound';
 import { EFFECTS, shipIcon, shipSegment, type Facing, type PaletteName } from './sprites';
 import './turn.css';
@@ -29,14 +30,17 @@ export interface AppOptions {
   sound?: SoundPlayer;
   /** Where the win / loss record is kept; defaults to localStorage. */
   record?: RecordStore;
+  /** Screen language; defaults to the saved choice (Japanese if none). */
+  language?: Lang;
 }
 
-type LogEntry = { side: 'player' | 'ai' | 'system'; text: string };
+/** Texts are built when drawn, so switching the language also rewrites earlier messages. */
+type Text = () => string;
+type LogEntry = { side: 'player' | 'ai' | 'system'; text: Text };
 
 const COLUMN_LABELS = 'ABCDEFGHIJ';
 
 const DIRECTION_DELTA: Record<Direction, Offset> = { up: { row: -1, col: 0 }, down: { row: 1, col: 0 }, left: { row: 0, col: -1 }, right: { row: 0, col: 1 } };
-const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: '弱い', normal: '普通', hard: '強い' };
 const ARROW_KEYS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
 export function coordLabel({ row, col }: Coord): string {
@@ -56,7 +60,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   let hover: Coord | null = null;
   let lastShot: { side: 'player' | 'ai'; coord: Coord } | null = null;
   let log: LogEntry[] = [];
-  let status = '';
+  let lang: Lang = options.language ?? loadLanguage();
+  const m = () => MESSAGES[lang];
+  const shipName = (id: string) => m().ship[id];
+  const level = () => m().difficulty[difficulty];
+  let status: Text = () => '';
   let resultDismissed = false;
   /** Set once this game's result has been added to the win / loss record. */
   let recorded = false;
@@ -104,6 +112,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     playAgain: $<HTMLButtonElement>('[data-ref=play-again]'),
     viewBoards: $<HTMLButtonElement>('[data-ref=view-boards]'),
     soundToggle: $<HTMLButtonElement>('[data-ref=sound-toggle]'),
+    langButtons: [...root.querySelectorAll<HTMLButtonElement>('[data-lang]')],
   };
   buildGrid(els.grid);
 
@@ -119,7 +128,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     recorded = false;
     selected = null;
     lastMoved = null;
-    status = '船を配置してください。自陣（左側）のマスをクリックすると置けます。';
+    status = () => m().placeIntro;
     render();
   }
 
@@ -161,12 +170,12 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     log = [entry, ...log].slice(0, 30);
   }
 
-  function describe(result: AttackResult, attacker: 'player' | 'ai'): string {
+  function describe(result: AttackResult, attacker: 'player' | 'ai'): Text {
     const where = coordLabel(result.coord);
-    const whose = attacker === 'player' ? '敵の' : 'あなたの';
-    if (result.outcome === 'miss') return `${where}：外れ`;
-    if (result.outcome === 'hit') return `${where}：命中！`;
-    return `${where}：命中！ ${whose}${result.ship!.type.name}を撃沈！`;
+    if (result.outcome === 'miss') return () => m().miss(where);
+    if (result.outcome === 'hit') return () => m().hit(where);
+    const id = result.ship!.type.id;
+    return () => m().sunk(where, attacker, shipName(id));
   }
 
   function playAttackSound(result: AttackResult) {
@@ -183,15 +192,13 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     const ship = game.nextShipToPlace();
     if (!ship) return;
     if (!game.canPlaceNext(coord, orientation)) {
-      status = `${ship.name}（${ship.length}マス）はそこには置けません。はみ出しや重なりがない場所を選んでください。`;
+      status = () => m().cannotPlace(shipName(ship.id), ship.length);
       render();
       return;
     }
     game.placeNext(coord, orientation);
     const next = game.nextShipToPlace();
-    status = next
-      ? `${ship.name}を配置しました。次は${next.name}（${next.length}マス）です。`
-      : 'すべての船を配置しました。「ゲーム開始」を押してください。';
+    status = next ? () => m().placed(shipName(ship.id), shipName(next.id), next.length) : () => m().allPlaced;
     render();
   }
 
@@ -205,13 +212,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     return playerCanAct() && waiting;
   }
 
-  function defenseHint() {
-    return 'AIの攻撃ターン：船を1隻選んで上下左右に1マス動かすか、「移動なし」を押してください。押すとAIが発射します。';
-  }
+  const defenseHint: Text = () => m().defenseHint;
 
   function deselect() {
     selected = null;
-    if (playerDefending()) status = defenseHint();
+    if (playerDefending()) status = defenseHint;
     render();
   }
 
@@ -232,12 +237,12 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
   function selectShip(ship: Ship) {
     if (isSunk(ship)) {
-      status = `${ship.type.name}は沈んでいるので動かせません。`;
+      status = () => m().shipSunkCannotMove(shipName(ship.type.id));
     } else if (game.playerBoard.legalOffsets(ship).length === 0) {
-      status = `${ship.type.name}は周りがふさがっていて動かせません。`;
+      status = () => m().shipBlocked(shipName(ship.type.id));
     } else {
       selected = ship;
-      status = `${ship.type.name}を選択中。光っているマスをクリックするか、矢印ボタン・矢印キーで1マス動かします。`;
+      status = () => m().shipSelected(shipName(ship.type.id));
     }
     render();
   }
@@ -246,7 +251,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (!playerDefending() || !selected) return;
     const offset = DIRECTION_DELTA[direction];
     if (!game.playerBoard.canMoveBy(selected, offset)) {
-      status = `${selected.type.name}はその方向には動かせません（盤面の外や、ほかの船と重なる場所には止まれません）。`;
+      const id = selected.type.id;
+      status = () => m().cannotMoveThatWay(shipName(id));
       render();
       return;
     }
@@ -264,7 +270,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   function onAiGridClick(coord: Coord) {
     if (!playerAttacking()) return;
     if (game.aiBoard.isSunkAt(coord)) {
-      status = `${coordLabel(coord)}は沈んだ船のマスです。別のマスを選んでください。`;
+      status = () => m().sunkCell(coordLabel(coord));
       render();
       return;
     }
@@ -277,10 +283,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (game.phase !== 'playing') return;
     waiting = true;
     selected = null;
-    status =
-      game.turn === 'player'
-        ? 'あなたの攻撃ターン：敵陣（右側）のマスをクリックすると発射します。'
-        : defenseHint();
+    status = game.turn === 'player' ? () => m().attackHint : defenseHint;
     render();
   }
 
@@ -302,15 +305,16 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     lastShot = { side: outcome.attacker, coord: attack.coord };
     awaitingImpact = true;
     struckInFlight = struck;
-    status = `${outcome.attacker === 'player' ? '' : 'AIが'}${coordLabel(attack.coord)}へミサイル発射！`;
+    status = () => m().fired(outcome.attacker, coordLabel(attack.coord));
     render();
     fireMissile(outcome.attacker, attack.coord, () => {
       playAttackSound(attack);
       const text = describe(attack, outcome.attacker);
-      addLog({ side: outcome.attacker, text: `${outcome.attacker === 'player' ? 'あなた' : 'AI'} → ${text}` });
+      addLog({ side: outcome.attacker, text: () => m().logAttack(outcome.attacker, text()) });
       if (game.phase === 'playing') {
         startRound();
-        status = `${outcome.attacker === 'player' ? 'あなた' : 'AI'}の攻撃 ${text} ／ ${status}`;
+        const next = status;
+        status = () => m().attackReport(outcome.attacker, text(), next());
       }
       render();
     });
@@ -320,9 +324,10 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     lastMoved = attacker === 'ai' && move ? move.ship : null;
     if (!move) return;
     if (attacker === 'player') {
-      addLog({ side: 'ai', text: 'AI → 船を1隻動かした（どの船かは秘密）' });
+      addLog({ side: 'ai', text: () => m().aiMoved });
     } else {
-      addLog({ side: 'player', text: `あなた → ${move.ship.type.name}を${offsetLabel(move.offset)}へ移動` });
+      const { ship, offset } = move;
+      addLog({ side: 'player', text: () => m().playerMoved(shipName(ship.type.id), offset) });
     }
   }
 
@@ -370,20 +375,21 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     if (game.phase !== 'placement') return;
     game.clearPlacement();
     game.placeRemainingRandomly();
-    status = 'ランダムに配置しました。気に入らなければもう一度押せます。準備ができたら「ゲーム開始」！';
+    status = () => m().randomPlaced;
     render();
   });
   els.clear.addEventListener('click', () => {
     if (game.phase !== 'placement') return;
     game.clearPlacement();
-    status = '配置をリセットしました。もう一度船を配置してください。';
+    status = () => m().cleared;
     render();
   });
   els.start.addEventListener('click', () => {
     if (game.phase !== 'placement' || game.nextShipToPlace()) return;
     game.start();
     hover = null;
-    addLog({ side: 'system', text: `戦闘開始！（AIの強さ：${DIFFICULTY_LABELS[difficulty]}）` });
+    const startLevel = difficulty;
+    addLog({ side: 'system', text: () => m().battleStart(m().difficulty[startLevel]) });
     startRound();
   });
   for (const button of els.moveButtons) {
@@ -396,7 +402,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       if (game.phase !== 'placement') return;
       difficulty = button.dataset.difficulty as Difficulty;
       game.setDifficulty(difficulty);
-      status = `AIの強さを「${DIFFICULTY_LABELS[difficulty]}」にしました。`;
+      status = () => m().difficultySet(level());
       render();
     });
   }
@@ -407,40 +413,58 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     render();
   });
   const renderSoundToggle = () => {
-    els.soundToggle.textContent = sound.muted ? '効果音：OFF' : '効果音：ON';
+    els.soundToggle.textContent = m().sound(!sound.muted);
     els.soundToggle.setAttribute('aria-pressed', String(!sound.muted));
   };
   els.soundToggle.addEventListener('click', () => {
     sound.muted = !sound.muted;
     renderSoundToggle();
   });
-  renderSoundToggle();
+
+  /** Writes the template's fixed texts (buttons, headings, labels) in the current language. */
+  function renderStaticTexts() {
+    const texts = m().static;
+    root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => (el.textContent = texts[el.dataset.i18n!]));
+    root.querySelectorAll<HTMLElement>('[data-i18n-label]').forEach((el) => el.setAttribute('aria-label', texts[el.dataset.i18nLabel!]));
+    root.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((el) => (el.title = texts[el.dataset.i18nTitle!]));
+    for (const button of els.difficultyButtons) button.textContent = m().difficulty[button.dataset.difficulty as Difficulty];
+    for (const button of els.langButtons) button.setAttribute('aria-pressed', String(button.dataset.lang === lang));
+    document.documentElement.lang = lang;
+    renderSoundToggle();
+  }
+  for (const button of els.langButtons) {
+    button.addEventListener('click', () => {
+      lang = button.dataset.lang as Lang;
+      saveLanguage(lang);
+      renderStaticTexts();
+      render();
+    });
+  }
+  renderStaticTexts();
 
   function render() {
-    els.status.textContent = status;
+    els.status.textContent = status();
     renderControls();
     renderBoards();
-    els.playerCount.textContent = String(renderFleet(els.playerFleet, game.playerBoard, true, struckInFlight));
-    els.aiCount.textContent = String(renderFleet(els.aiFleet, game.aiBoard, false, struckInFlight));
+    els.playerCount.textContent = String(renderFleet(els.playerFleet, game.playerBoard, true, struckInFlight, m()));
+    els.aiCount.textContent = String(renderFleet(els.aiFleet, game.aiBoard, false, struckInFlight, m()));
     els.log.replaceChildren(
       ...log.map((entry) => {
         const li = document.createElement('li');
         li.className = `log-${entry.side}`;
-        li.textContent = entry.text;
+        li.textContent = entry.text();
         return li;
       }),
     );
     renderResult();
-    renderRecord(els.record, records.record);
+    renderRecord(els.record, records.record, m());
   }
 
   function renderControls() {
     const placing = game.phase === 'placement';
     els.placement.hidden = !placing;
     const next = game.nextShipToPlace();
-    els.currentShip.textContent = next
-      ? `配置中：${next.name}（${next.length}マス）／ 向き：${orientation === 'horizontal' ? '横' : '縦'}`
-      : '全ての船を配置済み';
+    els.currentShip.textContent = next ? m().currentShip(shipName(next.id), next.length, orientation) : m().allPlacedShort;
     els.rotate.disabled = !placing || !next;
     els.start.disabled = !placing || next !== null;
     els.clear.disabled = !placing || game.playerBoard.ships.length === 0;
@@ -448,15 +472,11 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       button.setAttribute('aria-pressed', String(button.dataset.difficulty === difficulty));
       button.disabled = !placing;
     }
-    els.aiLevel.textContent = `AI・${DIFFICULTY_LABELS[difficulty]}`;
+    els.aiLevel.textContent = m().aiLevel(level());
     const defending = playerDefending();
     if (!defending || (selected && isSunk(selected))) selected = null;
     els.movePanel.hidden = game.phase !== 'playing';
-    els.moveInfo.textContent = !defending
-      ? '移動：AIの攻撃ターンに、守りとして1隻を1マス動かせます'
-      : selected
-        ? `移動：${selected.type.name}`
-        : '守り：船を選んで動かすか「移動なし」';
+    els.moveInfo.textContent = !defending ? m().moveIdle : selected ? m().moveSelected(shipName(selected.type.id)) : m().moveChoose;
     for (const button of els.moveButtons) {
       button.disabled = !defending || !selected || !game.playerBoard.canMoveBy(selected, DIRECTION_DELTA[button.dataset.dir as Direction]);
     }
@@ -493,7 +513,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       else if (inPreview) setSprite(cell, shipSegment(preview!.type.id, orientation, previewIndex, 'player'), preview!.type.id);
       else setSprite(cell, null);
       cell.disabled = !(game.phase === 'placement' || defending);
-      cell.setAttribute('aria-label', cellAria('player', coord, shot, ship !== null, ship ? isSunk(ship) : false));
+      cell.setAttribute('aria-label', cellAria(m(), 'player', coord, shot, ship !== null, ship ? isSunk(ship) : false));
     });
 
     const canAttack = playerAttacking();
@@ -514,7 +534,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
       if (reveal && ship) setShipSprite(cell, ship, coord, 'enemy');
       else setSprite(cell, null);
       cell.disabled = !canAttack || sunk;
-      cell.setAttribute('aria-label', cellAria('ai', coord, shot, reveal, sunk));
+      cell.setAttribute('aria-label', cellAria(m(), 'ai', coord, shot, reveal, sunk));
     });
   }
 
@@ -548,21 +568,19 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.result.dataset.winner = game.winner ?? '';
     els.resultLabel.textContent = playerWon ? 'MISSION COMPLETE' : 'MISSION FAILED';
     els.resultTitle.textContent = playerWon ? 'VICTORY' : 'DEFEAT';
-    els.resultText.textContent = playerWon
-      ? 'あなたの勝利！ 敵艦隊をすべて撃沈しました。'
-      : 'AIの勝利… あなたの艦隊はすべて沈められました。';
+    els.resultText.textContent = playerWon ? m().winText : m().loseText;
     const shots = game.shots.player;
     const afloat = game.playerBoard.ships.filter((ship) => !isSunk(ship)).length;
+    const [shotsLabel, accuracyLabel, shipsLeftLabel] = m().stats;
     renderStats(els.resultStats, [
-      [String(shots.total), '攻撃回数'],
-      [`${shots.total === 0 ? 0 : Math.round((shots.hits / shots.total) * 100)}%`, '命中率'],
-      [`${afloat}/${FLEET.length}`, '残った自艦'],
+      [String(shots.total), shotsLabel],
+      [`${shots.total === 0 ? 0 : Math.round((shots.hits / shots.total) * 100)}%`, accuracyLabel],
+      [`${afloat}/${FLEET.length}`, shipsLeftLabel],
     ]);
     const { wins, losses } = records.record;
-    els.resultRecord.textContent = `通算成績 ${wins}勝 ${losses}敗（勝率 ${winRate(records.record)}%）`;
-    status = playerWon ? 'ゲーム終了：あなたの勝利です！' : 'ゲーム終了：AIの勝利です。敵の残りの船の位置を表示しています。';
-    if (resultDismissed) status += '「最初からやり直す」で新しいゲームを始められます。';
-    els.status.textContent = status;
+    els.resultRecord.textContent = m().resultRecord(wins, losses, winRate(records.record));
+    status = () => (playerWon ? m().gameOverWin : m().gameOverLose) + (resultDismissed ? m().restartHint : '');
+    els.status.textContent = status();
   }
 
   root.style.setProperty('--fx-hit', EFFECTS.hit());
@@ -587,7 +605,6 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
 
 type Owner = 'player' | 'ai';
 const OWNERS: readonly Owner[] = ['player', 'ai'];
-const ZONE_NAMES: Record<Owner, string> = { player: '自陣', ai: '敵陣' };
 
 /** One battlefield: each row is the player's 10 cells, the centre line, then the AI's 10 cells. */
 function buildGrid(container: HTMLElement) {
@@ -666,11 +683,11 @@ function setShipSprite(cell: HTMLElement, ship: Ship, coord: Coord, facing: Faci
   setSprite(cell, shipSegment(ship.type.id, shipOrientation(ship), index, facing, palette), ship.type.id);
 }
 
-function cellAria(owner: Owner, coord: Coord, shot: 'hit' | 'miss' | null, ship: boolean, sunk: boolean) {
-  const parts = [ZONE_NAMES[owner], coordLabel(coord)];
-  if (shot === 'hit') parts.push(sunk ? '撃沈' : '命中');
-  else if (shot === 'miss') parts.push('外れ');
-  else if (ship) parts.push('船');
+function cellAria(m: Messages, owner: Owner, coord: Coord, shot: 'hit' | 'miss' | null, ship: boolean, sunk: boolean) {
+  const parts = [m.zone[owner], coordLabel(coord)];
+  if (shot === 'hit') parts.push(sunk ? m.cell.sunk : m.cell.hit);
+  else if (shot === 'miss') parts.push(m.cell.miss);
+  else if (ship) parts.push(m.cell.ship);
   return parts.join(' ');
 }
 
@@ -681,7 +698,7 @@ interface ShipMarks {
   hitCount: number;
 }
 
-function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlight: ShipMarks | null): number {
+function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlight: ShipMarks | null, m: Messages): number {
   let afloat = 0;
   list.replaceChildren(
     ...FLEET.map((type) => {
@@ -696,8 +713,8 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlig
       const li = document.createElement('li');
       li.className = sunk ? 'sunk' : pending ? 'pending' : damaged ? 'damaged' : 'intact';
       const name = document.createElement('em');
-      name.textContent = type.name;
-      if (ship) name.append(Object.assign(document.createElement('small'), { className: 'hits', textContent: `被弾 ${hitCount}/${type.length}` }));
+      name.textContent = m.ship[type.id];
+      if (ship) name.append(Object.assign(document.createElement('small'), { className: 'hits', textContent: m.hits(hitCount, type.length) }));
       const hull = document.createElement('span');
       hull.className = 'hull';
       hull.style.setProperty('--len', String(type.length));
@@ -710,8 +727,8 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlig
       }
       const badge = document.createElement('i');
       badge.className = 'badge';
-      badge.textContent = sunk ? '撃沈' : pending ? '未配置' : damaged ? '被弾' : '健在';
-      li.setAttribute('aria-label', `${type.name}：${badge.textContent}`);
+      badge.textContent = sunk ? m.badge.sunk : pending ? m.badge.pending : damaged ? m.badge.damaged : m.badge.intact;
+      li.setAttribute('aria-label', m.shipStatus(m.ship[type.id], badge.textContent));
       li.append(name, hull, badge);
       return li;
     }),
@@ -729,14 +746,15 @@ function renderStats(container: HTMLElement, stats: [value: string, label: strin
   );
 }
 
-function renderRecord(container: HTMLElement, record: GameRecord) {
+function renderRecord(container: HTMLElement, record: GameRecord, m: Messages) {
   const strong = (text: string, className = '') => Object.assign(document.createElement('strong'), { textContent: text, className });
+  const [label, wins, losses] = m.record;
   container.replaceChildren(
-    '通算成績 ',
+    label,
     strong(String(record.wins), 'wins'),
-    '勝 ',
+    wins,
     strong(String(record.losses), 'losses'),
-    '敗 ｜ 勝率 ',
+    losses,
     strong(`${winRate(record)}%`),
   );
 }
@@ -745,74 +763,77 @@ const TEMPLATE = /* html */ `
   <header class="site-header">
     <div class="brand">
       <h1>BATTLESHIP <span>VS AI</span></h1>
-      <p>敵艦隊をすべて撃沈したら勝ち。攻守は1ターンごとに交代。守り側は攻撃を受ける前に、船を1隻だけ上下左右に1マス動かせます。</p>
+      <p data-i18n="tagline"></p>
     </div>
     <div class="header-side">
-      <p class="record" data-ref="record" aria-label="通算成績"></p>
-      <button type="button" class="sound-toggle" data-ref="sound-toggle" title="命中・撃沈の効果音を切り替え"></button>
+      <p class="record" data-ref="record" data-i18n-label="recordLabel"></p>
+      <div class="lang-switch" role="group" data-i18n-label="langLabel">
+        ${LANGS.map((l) => `<button type="button" class="sound-toggle" data-lang="${l}" lang="${l}">${MESSAGES[l].langName}</button>`).join('')}
+      </div>
+      <button type="button" class="sound-toggle" data-ref="sound-toggle" data-i18n-title="soundTitle"></button>
     </div>
   </header>
 
   <p class="status" data-ref="status" role="status" aria-live="polite"></p>
 
 
-  <section class="toolbar" aria-label="操作">
+  <section class="toolbar" data-i18n-label="controls">
     <div class="placement" data-ref="placement">
-      <div class="difficulty" role="group" aria-label="AIの強さ">
-        <span>AIの強さ</span>
-        ${DIFFICULTIES.map((d) => `<button type="button" data-difficulty="${d}">${DIFFICULTY_LABELS[d]}</button>`).join('')}
+      <div class="difficulty" role="group" data-i18n-label="difficulty">
+        <span data-i18n="difficulty"></span>
+        ${DIFFICULTIES.map((d) => `<button type="button" data-difficulty="${d}"></button>`).join('')}
       </div>
       <strong data-ref="current-ship"></strong>
       <div class="buttons">
-        <button type="button" data-ref="rotate">向きを変える (R)</button>
-        <button type="button" data-ref="random">ランダム配置</button>
-        <button type="button" data-ref="clear">配置をやり直す</button>
-        <button type="button" class="primary" data-ref="start">ゲーム開始</button>
+        <button type="button" data-ref="rotate" data-i18n="rotate"></button>
+        <button type="button" data-ref="random" data-i18n="random"></button>
+        <button type="button" data-ref="clear" data-i18n="clear"></button>
+        <button type="button" class="primary" data-ref="start" data-i18n="start"></button>
       </div>
     </div>
     <div class="move-panel" data-ref="move-panel" hidden>
       <strong data-ref="move-info"></strong>
       <div class="buttons">
-        <button type="button" data-dir="up" aria-label="上へ移動">↑</button>
-        <button type="button" data-dir="down" aria-label="下へ移動">↓</button>
-        <button type="button" data-dir="left" aria-label="左へ移動">←</button>
-        <button type="button" data-dir="right" aria-label="右へ移動">→</button>
-        <button type="button" data-ref="move-cancel">選択解除 (Esc)</button>
-        <button type="button" class="primary" data-ref="no-move">移動なし</button>
+        <button type="button" data-dir="up" data-i18n-label="up">↑</button>
+        <button type="button" data-dir="down" data-i18n-label="down">↓</button>
+        <button type="button" data-dir="left" data-i18n-label="left">←</button>
+        <button type="button" data-dir="right" data-i18n-label="right">→</button>
+        <button type="button" data-ref="move-cancel" data-i18n="moveCancel"></button>
+        <button type="button" class="primary" data-ref="no-move" data-i18n="noMove"></button>
       </div>
     </div>
-    <button type="button" class="restart" data-ref="restart">最初からやり直す</button>
+    <button type="button" class="restart" data-ref="restart" data-i18n="restart"></button>
   </section>
 
   <div class="layout">
-    <main class="battlefield" aria-label="盤面（左が自陣、右が敵陣）">
+    <main class="battlefield" data-i18n-label="battlefield">
       <div class="zones">
-        <h2 id="player-title">自陣 <small>あなたの艦隊</small></h2>
+        <h2 id="player-title"><span data-i18n="ownZone"></span> <small data-i18n="ownZoneSub"></small></h2>
         <span class="vs" aria-hidden="true">VS</span>
-        <h2 id="ai-title" class="enemy">敵陣 <small data-ref="ai-level">AI</small></h2>
+        <h2 id="ai-title" class="enemy"><span data-i18n="enemyZone"></span> <small data-ref="ai-level">AI</small></h2>
       </div>
       <div class="grid-scroll">
         <div class="grid" data-ref="grid"></div>
       </div>
-      <div class="legend" aria-label="凡例">
-        <span><i class="ship-icon" style="--len: 2" data-legend-ship="player"></i>自分の船</span>
-        <span><i class="cell hit"></i>命中</span>
-        <span><i class="cell miss"></i>外れ</span>
-        <span><i class="ship-icon" style="--len: 2" data-legend-ship="wreck"></i>撃沈</span>
+      <div class="legend" data-i18n-label="legend">
+        <span><i class="ship-icon" style="--len: 2" data-legend-ship="player"></i><span data-i18n="legendShip"></span></span>
+        <span><i class="cell hit"></i><span data-i18n="legendHit"></span></span>
+        <span><i class="cell miss"></i><span data-i18n="legendMiss"></span></span>
+        <span><i class="ship-icon" style="--len: 2" data-legend-ship="wreck"></i><span data-i18n="legendSunk"></span></span>
       </div>
     </main>
 
     <aside class="side">
       <section class="card">
-        <h3>自艦隊 <span>残り <b data-ref="player-count"></b> / ${FLEET.length} 隻</span></h3>
-        <ul class="fleet" data-ref="player-fleet" aria-label="あなたの船"></ul>
+        <h3><span data-i18n="ownFleet"></span> <span><span data-i18n="remaining"></span> <b data-ref="player-count"></b> / ${FLEET.length} <span data-i18n="shipsUnit"></span></span></h3>
+        <ul class="fleet" data-ref="player-fleet" data-i18n-label="ownShips"></ul>
       </section>
       <section class="card">
-        <h3>敵艦隊 <span>残り <b data-ref="ai-count"></b> / ${FLEET.length} 隻</span></h3>
-        <ul class="fleet enemy" data-ref="ai-fleet" aria-label="敵の船"></ul>
+        <h3><span data-i18n="enemyFleet"></span> <span><span data-i18n="remaining"></span> <b data-ref="ai-count"></b> / ${FLEET.length} <span data-i18n="shipsUnit"></span></span></h3>
+        <ul class="fleet enemy" data-ref="ai-fleet" data-i18n-label="enemyShips"></ul>
       </section>
       <section class="card log-panel">
-        <h3>戦況ログ</h3>
+        <h3 data-i18n="log"></h3>
         <ol class="log" data-ref="log"></ol>
       </section>
     </aside>
@@ -826,16 +847,9 @@ const TEMPLATE = /* html */ `
       <div class="stats" data-ref="result-stats"></div>
       <p class="result-record" data-ref="result-record"></p>
       <div class="buttons">
-        <button type="button" class="primary" data-ref="play-again">もう一度遊ぶ</button>
-        <button type="button" data-ref="view-boards">盤面を確認する</button>
+        <button type="button" class="primary" data-ref="play-again" data-i18n="playAgain"></button>
+        <button type="button" data-ref="view-boards" data-i18n="viewBoards"></button>
       </div>
     </div>
   </div>
 `;
-
-function offsetLabel({ row, col }: Offset): string {
-  const parts: string[] = [];
-  if (row) parts.push(`${row < 0 ? '上' : '下'}${Math.abs(row)}`);
-  if (col) parts.push(`${col < 0 ? '左' : '右'}${Math.abs(col)}`);
-  return parts.join('・') || 'その場';
-}

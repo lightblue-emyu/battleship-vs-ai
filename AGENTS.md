@@ -18,6 +18,8 @@ Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `mai
 - `src/ui/app.ts` – all DOM rendering and event handling; calls `Game` and re-renders.
 - `src/ui/sprites.ts` – top-down warship drawings as vector SVG (each ship is `length * CELL` x `CELL`, facing right),
   rotated / mirrored per orientation and sliced into one SVG data URL per cell (checked by `tests/sprites.test.ts`).
+- `src/ui/i18n.ts` – every on-screen text in Japanese and English (`MESSAGES`); the choice is kept in localStorage
+  (`battleship-lang`). Static template texts use `data-i18n` / `data-i18n-label` / `data-i18n-title` keys.
 - `src/ui/record.ts` – win / loss record in localStorage (`battleship-record`); inject `createRecordStore(null)` in tests.
 - `src/ui/sound.ts` – hit/sunk sound effects synthesised with Web Audio (no audio files); `mountApp` accepts a fake
   `SoundPlayer` via `options.sound` so tests stay silent.
@@ -29,7 +31,8 @@ Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `mai
   (use `seededRandom` from `tests/helpers.ts`).
 - Every bug fix gets a regression test and a short entry in `docs/bug-report.md` (Japanese)
   and the same entry in `docs/bug-report.en.md` (English); keep the two in sync.
-- UI text is Japanese; code, identifiers and commit messages are English.
+- UI text is Japanese (default) and English: add every new on-screen text to both languages in `src/ui/i18n.ts`.
+  Code, identifiers and commit messages are English.
 - Do not add runtime dependencies without a clear reason.
 - When a feature changes how the game or code is organised, update the page list in `.devin/wiki.json`
   in the same PR, then regenerate the Devin wiki after merging.

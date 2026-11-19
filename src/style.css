@@ -63,6 +63,8 @@ body {
 .record .losses { color: var(--hit); }
 .sound-toggle { font-size: 0.8rem; }
 .sound-toggle[aria-pressed='false'] { color: var(--muted); }
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch button[aria-pressed='true'] { background: var(--accent); color: var(--on-accent); }
 
 .status {
   display: flex;
