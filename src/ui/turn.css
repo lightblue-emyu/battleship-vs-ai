@@ -1,2 +1,6 @@
+/* Per-ship hit counter in the fleet panel. */
+.fleet em small.hits { display: block; font-style: normal; font-size: 0.7rem; color: var(--muted, #8aa0c0); }
+.fleet li.damaged em small.hits { color: var(--hit, #ff5a5f); }
+
 /* Cells the selected ship can move into during a defence turn. */
 .cell.reach { box-shadow: inset 0 0 0 1px rgb(62 224 255 / 0.55); background-color: rgb(62 224 255 / 0.12); cursor: pointer; }
