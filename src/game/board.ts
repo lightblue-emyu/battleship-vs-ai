@@ -85,15 +85,21 @@ export class Board {
     return this.misses[coord.row][coord.col] ? 'miss' : null;
   }
 
+  /** True on a cell of a sunk ship (the only cells that can no longer be attacked). */
+  isSunkAt(coord: Coord): boolean {
+    const ship = this.shipAtCell(coord);
+    return ship !== null && isSunk(ship);
+  }
+
   hasBeenShot(coord: Coord): boolean {
     return this.shotAt(coord) !== null;
   }
 
   receiveAttack(coord: Coord): AttackResult {
     if (!isInBounds(coord)) throw new Error('盤面の外は攻撃できません');
-    if (this.hasBeenShot(coord)) throw new Error('そのマスは既に攻撃済みです');
-
     const ship = this.shipAtCell(coord);
+    if (ship && isSunk(ship)) throw new Error('沈んだ船のマスは攻撃できません');
+    if (ship && ship.hits[segmentIndex(ship, coord)]) return this.receiveRepeatHit(coord);
     if (!ship) {
       this.misses[coord.row][coord.col] = true;
       return { coord, outcome: 'miss' };

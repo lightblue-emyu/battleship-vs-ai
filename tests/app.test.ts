@@ -157,14 +157,14 @@ describe('画面（UI）', () => {
     expect(marks('ai')).toBe(2);
   });
 
-  it('攻撃済みのマスは押しても無視される', () => {
+  it('一度撃ったマスも、もう一度狙って撃てる', () => {
     startWithRandomFleet();
     playerShoots({ row: 3, col: 3 });
     passDefence();
-    cell('ai', 3, 3).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(marks('ai')).toBe(1);
-    expect(app.game.turn).toBe('player');
-    expect(cell('ai', 3, 3).disabled).toBe(true);
+    expect(cell('ai', 3, 3).disabled).toBe(false);
+    cell('ai', 3, 3).click();
+    expect(app.game.shots.player.total).toBe(2);
+    expect(app.game.turn).toBe('ai');
   });
 
   it('敵を全滅させると勝利画面が出て、再スタートで初期状態に戻る', () => {
