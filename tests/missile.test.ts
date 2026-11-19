@@ -77,13 +77,13 @@ describe('ミサイルの演出（画面）', () => {
     mount();
     const ship = app.game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
     const row = () => [...q('[data-ref=ai-fleet]').children].find((li) => li.textContent!.includes('空母'))!;
-    cell('ai', ship.cells[0].row, ship.cells[0].col).click();
+    cell('ai', ship.cells[2].row, ship.cells[2].col).click();
     expect(ship.hitCount).toBe(1);
     expect(row().querySelectorAll('.hull s.hit')).toHaveLength(0);
     expect(row().querySelector('.hits')!.textContent).toBe('被弾 0/5');
     expect(row().querySelector('.badge')!.textContent).toBe('健在');
     vi.advanceTimersByTime(400);
-    expect(row().querySelectorAll('.hull s.hit')).toHaveLength(1);
+    expect([...row().querySelectorAll('.hull s')].map((s) => s.classList.contains('hit'))).toEqual([false, false, true, false, false]);
     expect(row().querySelector('.hits')!.textContent).toBe('被弾 1/5');
     expect(row().querySelector('.badge')!.textContent).toBe('被弾');
   });
