@@ -340,6 +340,12 @@ describe('画面（UI）', () => {
     expect(row.querySelector('.badge')!.textContent).toBe('被弾');
     expect(row.querySelector('.hits')!.textContent).toBe('被弾 1/2');
     expect(row.querySelectorAll('.hull s.hit')).toHaveLength(1);
+    const carrier = app.game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
+    carrier.hitCount = 3;
+    passDefence();
+    const carrierRow = rows().find((li) => li.textContent!.includes('空母'))!;
+    expect(carrierRow.querySelectorAll('.hull s.hit')).toHaveLength(3);
+    carrier.hitCount = 0;
 
     playerShoots(second);
     const sunk = rows().find((li) => li.textContent!.includes('駆逐艦'))!;

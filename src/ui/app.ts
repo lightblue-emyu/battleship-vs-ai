@@ -682,7 +682,8 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
       hull.style.setProperty('--sprite', shipIcon(type.id, 'player', sunk ? 'wreck' : own ? 'player' : 'enemy'));
       for (let i = 0; i < type.length; i++) {
         const part = document.createElement('s');
-        part.classList.toggle('hit', !!ship && board.shotAt(ship.cells[i]) === 'hit');
+        // One glowing dot per hit taken (repeat hits on a moved segment count too).
+        part.classList.toggle('hit', !!ship && i < ship.hitCount);
         hull.append(part);
       }
       const badge = document.createElement('i');
