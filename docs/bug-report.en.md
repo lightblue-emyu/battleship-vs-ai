@@ -260,6 +260,23 @@ In `src/ui/app.ts`, the struck ship's hit state just before the attack is judged
 **Regression test**
 - `tests/missile.test.ts`: "the red dots and hit count in the fleet panel increase only after the missile lands"
 
+### Bug 12: At phone width, the whole page overflows sideways (severity: low)
+
+**How it was found**: the review after adding the English screen (checked at 390 px width)
+
+**Symptom**
+At phone width, the whole page stuck out about 200 px to the right and could be scrolled sideways. After the English screen was added, the "日本語" button in the top right was also squeezed so its text wrapped one character per line.
+
+**Cause**
+- The narrow-screen layout (`.layout`) used `1fr`. A `1fr` column never shrinks below its content, so the battlefield card grew as wide as the board. Because of that, the board's own sideways scroll (`.grid-scroll`) never kicked in.
+- The top-right button row (`.header-side`) could not wrap, so the buttons were squeezed.
+
+**Fix**
+In `src/style.css`, `.layout` now uses `minmax(0, 1fr)`, so the board scrolls inside its card. `.header-side` may now wrap, and its button labels do not.
+
+**Regression test**
+- `tests/style.test.ts`: "on narrow screens the battlefield card does not grow wider than the screen, and the top-right buttons wrap"
+
 ## Environment problems found during development (not game bugs)
 
 | Problem | Cause | Action |
