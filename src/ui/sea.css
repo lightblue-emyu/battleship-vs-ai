@@ -1,0 +1,61 @@
+/*
+ * Moving sea under each half of the battlefield. `.sea` is absolutely positioned inside the grid area of one
+ * board, so it never takes part in grid auto-placement; the cells above it are translucent.
+ * Both textures are tileable SVG noise (stitchTiles); they drift by exactly one tile (--sea-tile) per loop,
+ * so the motion is seamless and runs on the compositor (transform / opacity only, no JS).
+ */
+.sea {
+  --sea-tile: 240px;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 4px;
+  background:
+    radial-gradient(120% 90% at 18% 0%, rgb(40 110 170 / 0.45), transparent 60%),
+    radial-gradient(90% 80% at 100% 100%, rgb(2 10 24 / 0.7), transparent 70%),
+    linear-gradient(180deg, #0d3156, #081c36);
+}
+.sea[data-owner='player'] { grid-column: 2 / span 10; grid-row: 2 / span 10; }
+.sea[data-owner='ai'] {
+  grid-column: 13 / span 10;
+  grid-row: 2 / span 10;
+  background:
+    radial-gradient(120% 90% at 82% 0%, rgb(70 80 160 / 0.4), transparent 60%),
+    radial-gradient(90% 80% at 0% 100%, rgb(4 6 24 / 0.75), transparent 70%),
+    linear-gradient(180deg, #13284f, #0a1430);
+}
+
+.sea::before,
+.sea::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--sea-tile));
+  background-size: var(--sea-tile) var(--sea-tile);
+  background-repeat: repeat;
+  will-change: transform;
+}
+
+/* Long, slow swells: dark troughs and lighter crests. */
+.sea::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='s' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.00833 0.0375' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.7 0 0 0 0 0.95 0 0 0 1.6 -0.62'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E");
+  opacity: 0.55;
+  animation: sea-swell 38s linear infinite;
+}
+
+/* Sun glints on the wave faces, drifting the other way and twinkling. */
+.sea::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.025 0.05' numOctaves='2' seed='9' stitchTiles='stitch'/%3E%3CfeSpecularLighting surfaceScale='9' specularConstant='1.1' specularExponent='38' lighting-color='%23c4f3ff'%3E%3CfeDistantLight azimuth='235' elevation='40'/%3E%3C/feSpecularLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  mix-blend-mode: screen;
+  opacity: 0.45;
+  animation: sea-glint 26s linear infinite, sea-twinkle 3.4s ease-in-out infinite alternate;
+}
+.sea[data-owner='ai']::after { opacity: 0.34; animation-direction: reverse, alternate; }
+
+@keyframes sea-swell { to { transform: translate3d(var(--sea-tile), calc(0.5 * var(--sea-tile)), 0); } }
+@keyframes sea-glint { to { transform: translate3d(calc(-1 * var(--sea-tile)), var(--sea-tile), 0); } }
+@keyframes sea-twinkle { from { opacity: 0.25; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sea::before, .sea::after { animation: none; }
+}

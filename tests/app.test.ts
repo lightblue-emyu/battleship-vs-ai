@@ -72,6 +72,12 @@ describe('画面（UI）', () => {
     expect(cell('ai', 0, 0).getAttribute('aria-label')).toContain('敵陣');
   });
 
+  it('自陣・敵陣の下に、動く海（装飾用）が1枚ずつ敷かれている', () => {
+    const seas = [...root.querySelectorAll<HTMLElement>('.grid > .sea')];
+    expect(seas.map((s) => s.dataset.owner)).toEqual(['player', 'ai']);
+    for (const sea of seas) expect(sea.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('敵陣の上にマウスを乗せても配置プレビューは出ない', () => {
     cell('ai', 3, 3).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     expect(root.querySelectorAll('.preview-ok, .preview-ng')).toHaveLength(0);
