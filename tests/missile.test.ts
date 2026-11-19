@@ -73,6 +73,21 @@ describe('ミサイルの演出（画面）', () => {
     expect(target.classList.contains('hit') || target.classList.contains('miss')).toBe(true);
   });
 
+  it('右側の艦隊パネルの赤い点と被弾回数は、ミサイルが着弾してから増える', () => {
+    mount();
+    const ship = app.game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
+    const row = () => [...q('[data-ref=ai-fleet]').children].find((li) => li.textContent!.includes('空母'))!;
+    cell('ai', ship.cells[0].row, ship.cells[0].col).click();
+    expect(ship.hitCount).toBe(1);
+    expect(row().querySelectorAll('.hull s.hit')).toHaveLength(0);
+    expect(row().querySelector('.hits')!.textContent).toBe('被弾 0/5');
+    expect(row().querySelector('.badge')!.textContent).toBe('健在');
+    vi.advanceTimersByTime(400);
+    expect(row().querySelectorAll('.hull s.hit')).toHaveLength(1);
+    expect(row().querySelector('.hits')!.textContent).toBe('被弾 1/5');
+    expect(row().querySelector('.badge')!.textContent).toBe('被弾');
+  });
+
   it('AIの攻撃：AIのミサイルが自陣のマスへ飛んでくる', () => {
     mount();
     cell('ai', 0, 0).click();

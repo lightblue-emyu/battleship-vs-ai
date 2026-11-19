@@ -67,6 +67,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
   const missiles = new Set<() => void>();
   /** True from launch until impact, so a winning shot does not reveal the result early. */
   let awaitingImpact = false;
+  /** Ship struck by the missile still in the air; its fleet-panel dot lights only on impact. */
+  let struckInFlight: Ship | null = null;
 
   root.innerHTML = TEMPLATE;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -134,6 +136,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     );
     const land = () => {
       awaitingImpact = false;
+      struckInFlight = null;
       onImpact();
     };
     if (missileMs <= 0 || prefersReducedMotion() || !target) {
@@ -151,6 +154,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     for (const cancel of missiles) cancel();
     missiles.clear();
     awaitingImpact = false;
+    struckInFlight = null;
   }
 
   function addLog(entry: LogEntry) {
@@ -289,6 +293,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     }
     lastShot = { side: outcome.attacker, coord: attack.coord };
     awaitingImpact = true;
+    struckInFlight = attack.ship ?? null;
     status = `${outcome.attacker === 'player' ? '' : 'AIが'}${coordLabel(attack.coord)}へミサイル発射！`;
     render();
     fireMissile(outcome.attacker, attack.coord, () => {
@@ -407,8 +412,8 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.status.textContent = status;
     renderControls();
     renderBoards();
-    els.playerCount.textContent = String(renderFleet(els.playerFleet, game.playerBoard, true));
-    els.aiCount.textContent = String(renderFleet(els.aiFleet, game.aiBoard, false));
+    els.playerCount.textContent = String(renderFleet(els.playerFleet, game.playerBoard, true, struckInFlight));
+    els.aiCount.textContent = String(renderFleet(els.aiFleet, game.aiBoard, false, struckInFlight));
     els.log.replaceChildren(
       ...log.map((entry) => {
         const li = document.createElement('li');
@@ -662,20 +667,22 @@ function cellAria(owner: Owner, coord: Coord, shot: 'hit' | 'miss' | null, ship:
 }
 
 /** Lists every ship with its hit cells and a status badge; returns how many are still afloat. */
-function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
+function renderFleet(list: HTMLElement, board: Board, own: boolean, struckInFlight: Ship | null): number {
   let afloat = 0;
   list.replaceChildren(
     ...FLEET.map((type) => {
       const ship = board.ships.find((s) => s.type.id === type.id);
-      const sunk = ship ? isSunk(ship) : false;
-      const damaged = !!ship && !sunk && ship.hitCount > 0;
+      // The hit already applied by the rules is shown only once its missile lands.
+      const hitCount = ship ? ship.hitCount - (ship === struckInFlight ? 1 : 0) : 0;
+      const sunk = hitCount >= type.length;
+      const damaged = !!ship && !sunk && hitCount > 0;
       const pending = own && !ship;
       if (!sunk) afloat++;
       const li = document.createElement('li');
       li.className = sunk ? 'sunk' : pending ? 'pending' : damaged ? 'damaged' : 'intact';
       const name = document.createElement('em');
       name.textContent = type.name;
-      if (ship) name.append(Object.assign(document.createElement('small'), { className: 'hits', textContent: `被弾 ${ship.hitCount}/${type.length}` }));
+      if (ship) name.append(Object.assign(document.createElement('small'), { className: 'hits', textContent: `被弾 ${hitCount}/${type.length}` }));
       const hull = document.createElement('span');
       hull.className = 'hull';
       hull.style.setProperty('--len', String(type.length));
@@ -683,7 +690,7 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
       for (let i = 0; i < type.length; i++) {
         const part = document.createElement('s');
         // One glowing dot per hit taken (repeat hits on a moved segment count too).
-        part.classList.toggle('hit', !!ship && i < ship.hitCount);
+        part.classList.toggle('hit', i < hitCount);
         hull.append(part);
       }
       const badge = document.createElement('i');
