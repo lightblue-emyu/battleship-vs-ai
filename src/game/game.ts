@@ -34,6 +34,8 @@ export class Game {
   /** The player's chosen target while attacking, or their planned ship move while defending. */
   plannedTarget: Coord | null = null;
   plannedMove: ShipMove | null = null;
+  /** Shots fired by each side. Marks on the board are not enough: a ship stopping on a miss erases it. */
+  readonly shots: Record<Side, { total: number; hits: number }> = { player: { total: 0, hits: 0 }, ai: { total: 0, hits: 0 } };
   winner: Side | null = null;
   playerBoard = new Board();
   aiBoard = new Board();
@@ -125,6 +127,10 @@ export class Game {
       attack = defender.hasBeenShot(target)
         ? { coord: target, outcome: 'miss', wasted: true }
         : defender.receiveAttack(target);
+    }
+    if (attack) {
+      this.shots[attacker].total += 1;
+      if (attack.outcome !== 'miss') this.shots[attacker].hits += 1;
     }
     if (attacker === 'player') this.lastPlayerShot = target;
 

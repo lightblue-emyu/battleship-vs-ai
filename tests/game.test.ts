@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { shiftCells } from '../src/game/board';
 import { Game } from '../src/game/game';
 import { BOARD_SIZE, type Difficulty } from '../src/game/types';
 import { seededRandom } from './helpers';
@@ -111,6 +112,19 @@ describe('Game', () => {
       return r.outcome;
     });
     expect(results).toEqual(['hit', 'sunk']);
+  });
+
+  it('攻撃回数と命中数は、船が外れの印を消しても正しく数える', () => {
+    const game = startedGame(7, 'easy');
+    const ship = game.aiBoard.ships.find((s) => s.type.id === 'carrier')!;
+    const [offset] = game.aiBoard.legalOffsets(ship);
+    const emptyUnder = shiftCells(ship.cells, offset).find((c) => !ship.cells.some((d) => d.row === c.row && d.col === c.col))!;
+    game.planTarget(emptyUnder);
+    game.resolveRound();
+    game.resolveRound();
+    game.aiBoard.moveBy(ship, offset);
+    expect(game.aiBoard.hasBeenShot(emptyUnder)).toBe(false);
+    expect(game.shots.player).toEqual({ total: 1, hits: 0 });
   });
 
   it('狙ったマスに被弾済みの船の部分が移動してきたら、その攻撃は効果なし', () => {

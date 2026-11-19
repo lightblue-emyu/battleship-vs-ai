@@ -606,7 +606,7 @@ export function mountApp(root: HTMLElement, options: AppOptions = {}) {
     els.resultText.textContent = playerWon
       ? 'あなたの勝利！ 敵艦隊をすべて撃沈しました。'
       : 'AIの勝利… あなたの艦隊はすべて沈められました。';
-    const shots = countShots(game.aiBoard);
+    const shots = game.shots.player;
     const afloat = game.playerBoard.ships.filter((ship) => !isSunk(ship)).length;
     renderStats(els.resultStats, [
       [String(shots.total), '攻撃回数'],
@@ -756,19 +756,6 @@ function renderFleet(list: HTMLElement, board: Board, own: boolean): number {
     }),
   );
   return afloat;
-}
-
-function countShots(board: Board) {
-  let total = 0;
-  let hits = 0;
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      const shot = board.shotAt({ row, col });
-      if (shot) total++;
-      if (shot === 'hit') hits++;
-    }
-  }
-  return { total, hits };
 }
 
 function renderStats(container: HTMLElement, stats: [value: string, label: string][]) {
